@@ -11,7 +11,7 @@ A design wall for a home quilter. Match five scraps from your fabric basket to t
 3. Open **Cutting sheet**. For the original 20 × 20 inch topper, cut 25 squares at **4½ × 4½ inches**. The extra half inch leaves a quarter-inch seam at both edges of each dimension. Each fabric has a letter and a quantity. The row map shows where each piece goes.
 4. Choose **Copy cutting sheet** on a computer and paste it into a document to print. The web version offers **Download cutting sheet** as a text file. Edits save automatically. Reopen the app in the same browser or desktop account to pick up where you left off.
 
-The first version covers straight-sewn squares for the quilt top. Backing, batting and binding are separate materials. The [OpenSpec design](openspec/changes/add-quilt-design-wall/design.md) describes a possible 3D table preview and a first sewing session to try with the quilter.
+The first version covers straight-sewn squares for the quilt top. Backing, batting and binding are separate materials. The [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md) describes a possible 3D table preview and a first sewing session to try with the quilter.
 
 ## Run it
 
@@ -74,4 +74,4 @@ python tests/web_e2e.py build-web/app
 npx --yes @fission-ai/openspec@2.1.1 validate --all --strict
 ```
 
-The proposal, scenarios and implementation checklist live in the [OpenSpec change](openspec/changes/add-quilt-design-wall). The C implementation follows [Ponytail](https://github.com/DietrichGebert/ponytail) by sharing one quilt model, two views and a small storage boundary.
+The [quilt-planning specification](openspec/specs/quilt-planning/spec.md) defines the supported behavior. The proposal, scenarios and completed checklist live in the [OpenSpec change](openspec/changes/archive/2026-11-22-add-quilt-design-wall). The C implementation follows [Ponytail](https://github.com/DietrichGebert/ponytail) by sharing one quilt model, two views and a small storage boundary.

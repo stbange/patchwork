@@ -10,4 +10,4 @@
 ## 3. Verification
 
 - [x] 3.1 Enforce the 95% unit line-coverage threshold and exercise errors and data recovery.
-- [ ] 3.2 Build desktop and browser targets, exercise the packaged UI end to end, and document how to run them.
+- [x] 3.2 Build desktop and browser targets, exercise the packaged UI end to end, and document how to run them.

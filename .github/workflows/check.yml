@@ -8,8 +8,8 @@ jobs:
     name: Linux, unit coverage and desktop journey
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
       - name: Validate OpenSpec
@@ -36,7 +36,7 @@ jobs:
           tar -C build/app -czf patchwork-linux-x64.tar.gz patchwork assets
       - name: Drive the Linux window
         run: xvfb-run -a -s '-screen 0 1440x940x24' python3 tests/desktop_e2e.py build/app/patchwork
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: patchwork-linux-x64
           path: patchwork-linux-x64.tar.gz
@@ -45,7 +45,7 @@ jobs:
     name: Windows desktop journey
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Build
         run: |
           cmake -S . -B build -A x64 -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=TRUE
@@ -54,7 +54,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Drive the Windows window
         run: python tests/desktop_e2e.py build/app/Release/patchwork.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: patchwork-windows-x64
           path: |
@@ -65,7 +65,7 @@ jobs:
     name: Emscripten and Chromium journey
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Build with Emscripten
         run: |
           git clone --quiet --depth 1 --branch 4.0.15 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
@@ -74,7 +74,7 @@ jobs:
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build-web --parallel 4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - name: Drive the browser
@@ -82,7 +82,7 @@ jobs:
           python -m pip install playwright==1.62.0
           python -m playwright install --with-deps chromium
           python tests/web_e2e.py build-web/app --also-open-file
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: patchwork-web
           path: build-web/app/index.html
