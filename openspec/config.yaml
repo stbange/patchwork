@@ -1,0 +1,6 @@
+schema: spec-driven
+context: |
+  A personal patchwork planner for a home quilter. Use plain sewing terms.
+  Use C for the application and share behavior across Windows, Linux and Emscripten.
+  Apply Ponytail's smallest-complete-change approach. Cover production C with
+  at least 95% unit line coverage and exercise the built apps end to end.
