@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patchwork · Quilt planner</title>
+<style>
+* {box-sizing:border-box} html,body {margin:0;width:100%;height:100%;background:#f8f5ee}
+body {display:grid;place-items:center;color:#253f38;font:18px system-ui,sans-serif}
+canvas {display:block;width:min(100vw,150vh);height:auto;max-height:100vh;aspect-ratio:3/2;outline-offset:-3px;touch-action:none}
+#loading {position:absolute;pointer-events:none}
+</style></head><body>
+<p id="loading" role="status">Opening the design wall…</p>
+<canvas id="canvas" width="1080" height="720" tabindex="0" aria-label="Quilt design wall. Choose a fabric with 1 to 5, move with arrow keys, and press Space to sew a square. Press Tab for the cutting sheet."></canvas>
+<script>
+var Module = {
+  canvas: document.getElementById('canvas'),
+  onRuntimeInitialized() { document.getElementById('loading').remove(); this.canvas.focus(); },
+  onAbort() { document.body.textContent = 'The quilt planner could not start. Reload this page to try again.'; }
+};
+</script>
+{{{ SCRIPT }}}
+</body></html>
