@@ -18,4 +18,4 @@ A first-time user should be able to change the center square, undo the change an
 
 Ask the quilter to replace a patch with a fabric from her scrap basket, close and reopen the planner, then point to the number and size of squares she would cut. If she wants to see the topper in her room, try an optional 3D preview using the existing grid as a texture on a table. If she needs to identify an exact print, try importing a fabric photograph first.
 
-The requested “OTL” integration needs its full name and intended role. If it means OpenTelemetry, a follow-up could measure failed saves and export times when diagnostics are enabled, leaving fabric names and layouts on the device. A text-layout library or a quilt interchange format would touch different parts of the application.
+The author subsequently clarified that “OTL” referred to OpenGL for graphics. The design wall and cutting sheet use SDL's OpenGL renderer on desktops and WebGL in browsers. [Current quilt-planning specification](../../../specs/quilt-planning/spec.md)

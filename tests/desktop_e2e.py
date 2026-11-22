@@ -76,14 +76,18 @@ else:
 def run(executable):
     with tempfile.TemporaryDirectory() as temp:
         plan = Path(temp, "topper.pw")
-        env = dict(os.environ, SDL_RENDER_DRIVER="software")
+        log = Path(temp, "startup.log")
+        env = os.environ.copy()
+        env.pop("SDL_RENDER_DRIVER", None)
         if sys.platform != "win32":
             env["SDL_VIDEO_DRIVER"] = "x11"
         for first_visit in [True, False]:
-            process = subprocess.Popen([executable, "--project", str(plan)], env=env)
+            with log.open("wb") as output:
+                process = subprocess.Popen([executable, "--project", str(plan)], env=env,
+                                           stdout=output, stderr=subprocess.STDOUT)
             try:
                 def ready():
-                    assert process.poll() is None, "The planner exited before its window opened"
+                    assert process.poll() is None, log.read_text(errors="replace")
                     return window_for(process.pid)
                 window = until(ready, "the design wall")
                 if first_visit:
@@ -106,6 +110,8 @@ def run(executable):
                     assert "24 x 20 in" in text and "30 squares at 4.5 x 4.5 in" in text
                     assert "D B B B D A" in text and "Madder rose     5" in text
                 close(window, process)
+                startup = log.read_text(errors="replace")
+                assert "Patchwork renderer: opengl" in startup.splitlines(), startup
             finally:
                 if process.poll() is None:
                     process.kill()

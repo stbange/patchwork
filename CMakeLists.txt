@@ -70,6 +70,6 @@ else()
     target_link_libraries(unit_tests PRIVATE workroom)
     add_test(NAME unit COMMAND unit_tests)
     set_tests_properties(unit PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy" ENVIRONMENT_MODIFICATION "SDL_RENDER_DRIVER=unset:")
   endif()
 endif()

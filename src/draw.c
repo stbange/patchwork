@@ -69,14 +69,15 @@ static int motif(int f, int x, int y)
     case 2: /* A stem with a pair of leaves. */
         return ((dx == -dy / 2 && abs(dy) < 5) || (dy == -2 && dx >= 1 && dx < 5) ||
                 (dy == 1 && dx < 0 && dx > -4)) * -33;
-    case 3: return ((x + y) % 12 < 2) * 29 + ((x + y) % 12 == 4) * 14;
-    default: return (x % 12 < 3) * -17 + (y % 12 < 3) * 20;
+    case 3: return ((x + y) % 16 < 2) * 29 + ((x + y) % 16 == 4) * 14;
+    default: return (x % 16 < 3) * -17 + (y % 16 < 3) * 20;
     }
 }
 
 static SDL_Texture *fabric_tile(SDL_Renderer *renderer, int f)
 {
-    SDL_Surface *s = SDL_CreateSurface(48, 48, SDL_PIXELFORMAT_ARGB8888);
+    /* WebGL 1 requires power-of-two textures for repeating fabric patterns. */
+    SDL_Surface *s = SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_ARGB8888);
     if (!s) return NULL;
     for (int y = 0; y < s->h; ++y) {
         Uint32 *pixels = (Uint32 *)((Uint8 *)s->pixels + y * s->pitch);

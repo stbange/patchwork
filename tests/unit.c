@@ -202,6 +202,7 @@ int main(void)
     CHECK(SDL_asprintf(&bad, "%s/missing/plan", path) > 0);
     test_storage(path);
     App *a = start(path);
+    CHECK(strcmp(SDL_GetRendererName(a->renderer), "software") == 0);
     test_inputs(a); test_drawing(a);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     a = start(path); CHECK(a->history.steps[0].cell[2][2] == 1);

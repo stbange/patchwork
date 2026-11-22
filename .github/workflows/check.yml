@@ -52,6 +52,10 @@ jobs:
           cmake --build build --config Release --parallel 4
       - name: Unit tests
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Install a desktop OpenGL driver on the test runner
+        uses: ssciwr/setup-mesa-dist-win@2dfeaebfa514f74c2b8cd8d27108c31486d33e72 # v3.0.0
+        with:
+          version: '26.0.3'
       - name: Drive the Windows window
         run: python tests/desktop_e2e.py build/app/Release/patchwork.exe
       - uses: actions/upload-artifact@v7.0.2

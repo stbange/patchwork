@@ -11,7 +11,7 @@ A design wall for a home quilter. Match five scraps from your fabric basket to t
 3. Open **Cutting sheet**. For the original 20 × 20 inch topper, cut 25 squares at **4½ × 4½ inches**. The extra half inch leaves a quarter-inch seam at both edges of each dimension. Each fabric has a letter and a quantity. The row map shows where each piece goes.
 4. Choose **Copy cutting sheet** on a computer and paste it into a document to print. The web version offers **Download cutting sheet** as a text file. Edits save automatically. Reopen the app in the same browser or desktop account to pick up where you left off.
 
-The first version covers straight-sewn squares for the quilt top. Backing, batting and binding are separate materials. The [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md) describes a possible 3D table preview and a first sewing session to try with the quilter.
+The first version covers straight-sewn squares for the quilt top. Backing, batting and binding are separate materials. The design wall and cutting sheet use OpenGL on Windows and Linux and WebGL in the browser. The concept also describes an optional 3D table preview and a first sewing session to try with the quilter. [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md)
 
 ## Run it
 
@@ -24,6 +24,8 @@ Download the matching artifact from a successful [build on main](https://github.
 | Web | Unzip the artifact and open `index.html` in a desktop browser. The HTML includes the application and fonts. Hosting the same file on a static server gives it a stable origin for saved plans. |
 
 The desktop app keeps the current quilt in SDL's per-user preference directory under `Patchwork/Planner/quilt.pw`. Launch `patchwork --project path/to/topper.pw` to work in a particular file. The browser saves in local storage. A damaged plan is preserved and the status bar reports the problem. On desktop, a fresh project path lets you keep working.
+
+SDL3 chooses desktop OpenGL first, then OpenGL ES where available. The Emscripten build uses SDL's OpenGL ES 2 renderer on a WebGL canvas. Both can fall back to software rendering when GL is unavailable. The startup log reports the selected backend. On desktop, setting `SDL_RENDER_DRIVER=software` explicitly selects software rendering.
 
 | Keyboard | Action |
 | --- | --- |
@@ -63,7 +65,7 @@ ctest --test-dir build-coverage --output-on-failure
 gcovr --root . --filter '^src/' --txt --fail-under-line 95 build-coverage/CMakeFiles/workroom.dir
 ```
 
-The desktop journey opens the real SDL window, edits a patch, checks undo and redo, adds a column, restarts the process and reads the resulting sheet from the clipboard. Linux uses Xvfb, xdotool and xclip. Windows uses Win32 window messages and the system clipboard. The web journey serves the compiled HTML on localhost and checks the actual downloaded sheet after a page reload.
+The desktop journey opens the real SDL window, verifies the OpenGL backend, edits a patch, checks undo and redo, adds a column, restarts the process and reads the resulting sheet from the clipboard. Linux uses Xvfb with GLX, xdotool and xclip. Windows uses Win32 window messages and the system clipboard. The Windows CI runner uses Mesa for OpenGL. The web journey checks the live WebGL context, compares pixels inside a patch before and after editing, and reads the downloaded sheet after a reload. It repeats the edit with WebGL disabled to exercise the software fallback.
 
 ```sh
 xvfb-run -a -s '-screen 0 1440x940x24' python3 tests/desktop_e2e.py build/app/patchwork

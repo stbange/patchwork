@@ -3,7 +3,14 @@
 #define SDL_MAIN_USE_CALLBACKS 1
 #define SDL_MAIN_NOIMPL
 #include <SDL3/SDL_main.h>
+#include <stdio.h>
 #include <string.h>
+
+#ifdef __EMSCRIPTEN__
+static const char render_drivers[] = "opengles2,software";
+#else
+static const char render_drivers[] = "opengl,opengles2,software";
+#endif
 
 static const char saved[] = "Saved on this device";
 static const char protected_msg[] = "Could not read the saved plan. Original preserved.";
@@ -114,6 +121,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     App *a = SDL_calloc(1, sizeof *a);
     *appstate = a;
     SDL_SetHint(SDL_HINT_MAIN_CALLBACK_RATE, "30");
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, render_drivers, SDL_HINT_DEFAULT);
     if (!a || !SDL_Init(SDL_INIT_VIDEO) ||
         !SDL_CreateWindowAndRenderer("Patchwork", WALL_WIDTH, WALL_HEIGHT, SDL_WINDOW_RESIZABLE,
                                      &a->window, &a->renderer) ||
@@ -144,6 +152,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     a->status = a->protected_plan ? protected_msg : load == STORE_OK ? saved : "Edits save on this device";
     a->fabric = 1;
     a->dirty = true;
+    printf("Patchwork renderer: %s\n", SDL_GetRendererName(a->renderer));
+    fflush(stdout);
     return SDL_APP_CONTINUE;
 }
 
