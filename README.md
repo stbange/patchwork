@@ -2,6 +2,8 @@
 
 A design wall for a home quilter. Match five scraps from your fabric basket to the swatches, try an arrangement on screen, then take the cutting sheet to your sewing table.
 
+[Open the quilt planner in your browser](https://stbange.github.io/patchwork/)
+
 ![The Garden Path table topper on the design wall, with five fabric swatches and quilt size controls](docs/design-wall.png)
 
 ## Try a table topper
@@ -15,13 +17,13 @@ The first version covers straight-sewn squares for the quilt top. Backing, batti
 
 ## Run it
 
-Download the matching artifact from a successful [build on main](https://github.com/stbange/patchwork/actions/workflows/check.yml?query=branch%3Amain).
+GitHub Pages publishes the browser version after the Linux, Windows and web tests pass on `main`. For an offline copy, download the matching artifact from a successful [build on main](https://github.com/stbange/patchwork/actions/workflows/check.yml?query=branch%3Amain).
 
 | Platform | Open the planner |
 | --- | --- |
 | Windows x64 | Unzip the artifact, keep the `assets` folder beside `patchwork.exe`, and open the executable. |
 | Linux x64 | Unzip the artifact, extract the tarball, and run `./patchwork` beside its `assets` folder. The binary is built on Ubuntu 24.04. |
-| Web | Unzip the artifact and open `index.html` in a desktop browser. The HTML includes the application and fonts. Hosting the same file on a static server gives it a stable origin for saved plans. |
+| Web (offline) | Unzip the artifact and open `index.html` in a desktop browser. The HTML includes the application and fonts. |
 
 The desktop app keeps the current quilt in SDL's per-user preference directory under `Patchwork/Planner/quilt.pw`. Launch `patchwork --project path/to/topper.pw` to work in a particular file. The browser saves in local storage. A damaged plan is preserved and the status bar reports the problem. On desktop, a fresh project path lets you keep working.
 
