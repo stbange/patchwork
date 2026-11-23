@@ -13,4 +13,4 @@
 
 - [x] 3.1 Exercise all 288 layouts and verify the 95% unit coverage gate.
 - [x] 3.2 Test patterned quilts and existing square plans in the desktop and browser journeys.
-- [ ] 3.3 Publish and verify the GitHub Pages build.
+- [x] 3.3 Publish and verify the GitHub Pages build.

@@ -90,4 +90,4 @@ python tests/web_e2e.py build-web/app
 npx --yes @fission-ai/openspec@2.1.1 validate --all --strict
 ```
 
-The [quilt-planning specification](openspec/specs/quilt-planning/spec.md) defines the supported behavior. The proposal, scenarios and completed checklist live in the [OpenSpec change](openspec/changes/archive/2026-11-22-add-quilt-design-wall). The C implementation follows [Ponytail](https://github.com/DietrichGebert/ponytail) by sharing one quilt model, two views and a small storage boundary.
+The quilt-planning specification defines the supported behavior. One C quilt model drives the design wall, cutting sheet and pattern library. [Quilt-planning specification](openspec/specs/quilt-planning/spec.md) · [Pattern library change](openspec/changes/archive/2026-11-23-add-pattern-library)
