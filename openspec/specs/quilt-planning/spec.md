@@ -8,7 +8,7 @@ Help a home quilter explore traditional and modern layouts, arrange individual f
 
 ### Requirement: Arrange a quilt top
 
-The planner SHALL offer editable blocks made of individual fabric pieces, five labeled fabrics, independent row and column counts from 3 to 9, and a finished block side from 2 to 8 inches. It SHALL allow square patches as well as triangles, rectangular strips, diamonds and other straight-edged pieces. Painting, resizing and applying a pattern SHALL work with pointer and keyboard input.
+The planner SHALL offer editable blocks made of individual fabric pieces, five labeled fabrics, independent row and column counts from 3 to 9, and a finished base block side from 5 to 20.32 centimetres. It SHALL allow square patches as well as triangles, rectangular strips, diamonds and other straight-edged pieces. Painting, resizing and applying a pattern SHALL work with pointer and keyboard input.
 
 #### Scenario: Recolor one patch
 
@@ -49,7 +49,7 @@ The planner SHALL provide finished top dimensions, piece quantities by fabric, a
 
 ### Requirement: Resume a local plan
 
-The planner SHALL persist completed edits on the current device, validate saved data before loading it, and show a visible status if storage fails. It SHALL load version 1 square plans and version 2 patterned plans.
+The planner SHALL persist completed edits on the current device, validate saved data before loading it, and show a visible status if storage fails. It SHALL load version 1 square plans, version 2 patterned plans and version 3 plans with mixed patterns, custom colors and physical block dimensions.
 
 #### Scenario: Return to yesterday's quilt
 
@@ -110,3 +110,49 @@ The planner SHALL offer at least 288 distinct layouts from at least 36 named bas
 - **WHEN** the quilter picks a modern design and switches from Rows to Alternating
 - **THEN** the arrangement of the patterned and plain blocks changes
 - **AND** the preview keeps the same quilt dimensions
+
+### Requirement: Compose with blocks and staggered seams
+
+The planner SHALL let a quilter place different named blocks on one quilt, rotate them before placing, and use regular, horizontally staggered or vertically staggered seams. The previews, hit testing, quantities and cutting templates SHALL follow the seam geometry.
+
+#### Scenario: Combine two traditional blocks
+
+- **WHEN** the quilter places a Flying Geese block and a Log Cabin block on different positions
+- **THEN** both motifs appear on the same quilt and their pieces can be edited separately
+- **AND** Undo and saved plans retain the correct block types and turns
+
+#### Scenario: Offset alternating brick rows
+
+- **WHEN** the quilter changes the quilt to horizontally staggered seams
+- **THEN** alternate rows have offset joints and different edge-block widths
+- **AND** the cutting sheet uses the actual dimensions of those pieces
+
+### Requirement: Use inches or centimetres
+
+The planner SHALL accept the finished block edge in inches or centimetres and SHALL present cutting measurements in the selected unit. Changing between the units SHALL preserve the quilt's physical dimensions.
+
+#### Scenario: Measure a ten-centimetre block
+
+- **WHEN** the quilter enters 10 cm for a block edge
+- **THEN** five blocks measure 50 cm across
+- **AND** changing to inches does not round the stored size or change the seam allowance
+
+### Requirement: Choose a fabric palette
+
+The planner SHALL offer approximately 100 named palettes and let a quilter assign any sRGB color to any of the five fabric slots. Color changes SHALL be undoable and saved with the quilt.
+
+#### Scenario: Make a palette your own
+
+- **WHEN** the quilter applies a palette and enters a custom hex color for fabric C
+- **THEN** every piece using C changes to the chosen color
+- **AND** reopening the quilt restores the palette and the custom color
+
+### Requirement: Export a PDF cutting sheet
+
+The planner SHALL offer a PDF that includes the colored layout diagram and the cutting sheet in the current language and units.
+
+#### Scenario: Print a mixed quilt in Polish
+
+- **WHEN** the quilter downloads the PDF with Polish and centimetres selected
+- **THEN** the PDF contains the quilt map and Polish instructions, including dimensions in centimetres
+- **AND** Polish letters remain legible in a standard PDF viewer

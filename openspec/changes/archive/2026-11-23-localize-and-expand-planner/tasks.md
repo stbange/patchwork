@@ -12,5 +12,5 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Verify the 95% unit coverage gate and Linux, Windows and browser journeys.
-- [ ] 3.2 Publish and verify the GitHub Pages build.
+- [x] 3.1 Verify the 95% unit coverage gate and Linux, Windows and browser journeys.
+- [x] 3.2 Publish and verify the GitHub Pages build.
