@@ -81,7 +81,7 @@ def run(executable):
         env.pop("SDL_RENDER_DRIVER", None)
         if sys.platform != "win32":
             env["SDL_VIDEO_DRIVER"] = "x11"
-        for first_visit in [True, False]:
+        for visit in range(3):
             with log.open("wb") as output:
                 process = subprocess.Popen([executable, "--project", str(plan)], env=env,
                                            stdout=output, stderr=subprocess.STDOUT)
@@ -90,7 +90,7 @@ def run(executable):
                     assert process.poll() is None, log.read_text(errors="replace")
                     return window_for(process.pid)
                 window = until(ready, "the design wall")
-                if first_visit:
+                if visit == 0:
                     click(window, 850, 228)  # Madder rose
                     click(window, 370, 398)  # Center patch
                     until(lambda: plan.exists() and "DBBBD" in plan.read_text(), "the rose center")
@@ -105,10 +105,25 @@ def run(executable):
                     click(window, 885, 583)
                     def copied_sheet():
                         text = clipboard()
-                        return text if "CUTTING SHEET" in text else None
+                        expected = "30 squares at 4.5 x 4.5 in" if visit == 1 else "Flying Geese / Columns"
+                        return text if expected in text else None
                     text = until(copied_sheet, "the copied cutting sheet")
-                    assert "24 x 20 in" in text and "30 squares at 4.5 x 4.5 in" in text
-                    assert "D B B B D A" in text and "Madder rose     5" in text
+                    assert "24 x 20 in" in text
+                    if visit == 1:
+                        assert "D B B B D A" in text and "Madder rose     5" in text
+                        click(window, 715, 36)  # Patterns
+                        click(window, 200, 170)  # Traditional
+                        click(window, 247, 638)  # Next
+                        click(window, 345, 285)  # Flying Geese
+                        click(window, 790, 540)  # Columns
+                        assert plan.read_text().startswith("PATCHWORK 1")
+                        click(window, 875, 636)  # Apply
+                        until(lambda: "5 6 4 08 4\n2DAABAA " in plan.read_text(), "the rotated geese")
+                        click(window, 189, 235)  # Paint just the first goose
+                        until(lambda: "5 6 4 08 4\n2BAABAA " in plan.read_text(), "the painted goose")
+                    else:
+                        assert "Cut 105 pieces for 30 blocks" in text
+                        assert "Triangle" in text and "[R90 B2" in text and "[- A1]" in text
                 close(window, process)
                 startup = log.read_text(errors="replace")
                 assert "Patchwork renderer: opengl" in startup.splitlines(), startup
@@ -116,7 +131,7 @@ def run(executable):
                 if process.poll() is None:
                     process.kill()
                     process.wait()
-    print("Desktop journey passed: paint, undo, redo, resize, reopen, copy cutting sheet.")
+    print("Desktop journey passed: squares, pattern selection, rotated triangle paint, reopen and copy.")
 
 
 if __name__ == "__main__":

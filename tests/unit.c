@@ -18,16 +18,16 @@ static void test_quilt(void)
     int counts[FABRICS];
     count_pieces(&q, counts);
     CHECK(memcmp(counts, (int[]){8, 4, 4, 8, 1}, sizeof counts) == 0);
-    CHECK(!paint(&q, 0, 0, 2) && !paint(&q, 0, 0, FABRICS));
-    CHECK(!paint(&q, -1, 0, 1) && !paint(&q, 1, q.cols, 1));
-    CHECK(paint(&q, 2, 2, 1) && q.cell[2][2] == 1);
+    CHECK(!paint(&q, 0, 0, 0, 2) && !paint(&q, 0, 0, 0, FABRICS));
+    CHECK(!paint(&q, -1, 0, 0, 1) && !paint(&q, 1, q.cols, 0, 1));
+    CHECK(paint(&q, 2, 2, 0, 1) && q.cell[2][2].fabric[0] == 1);
     count_pieces(&q, counts);
     CHECK(counts[1] == 5 && counts[4] == 0 && counts[0] == 8);
     CHECK(!resize_quilt(&q, 5, 5, 4));
     CHECK(!resize_quilt(&q, 2, 5, 4) && !resize_quilt(&q, 5, 10, 4));
     CHECK(!resize_quilt(&q, 5, 5, 1) && !resize_quilt(&q, 5, 5, MAX_PATCH + 1));
-    CHECK(resize_quilt(&q, 3, 7, 8) && q.cell[2][2] == 1 && q.cell[2][5] == 0);
-    CHECK(resize_quilt(&q, 5, 5, 2) && q.cell[4][0] == 0);
+    CHECK(resize_quilt(&q, 3, 7, 8) && q.cell[2][2].fabric[0] == 1 && q.cell[2][5].fabric[0] == 0);
+    CHECK(resize_quilt(&q, 5, 5, 2) && q.cell[4][0].fabric[0] == 0);
 }
 
 static void test_history(void)
@@ -37,13 +37,13 @@ static void test_history(void)
     h.steps[0] = q;
     CHECK(!record(&h, &q) && !travel(&h, -1) && !travel(&h, 1));
     CHECK(resize_quilt(&q, 3, 3, 4) && record(&h, &q));
-    CHECK(travel(&h, -1) && h.steps[h.at].rows == 5 && h.steps[h.at].cell[4][4] == 2);
+    CHECK(travel(&h, -1) && h.steps[h.at].rows == 5 && h.steps[h.at].cell[4][4].fabric[0] == 2);
     CHECK(travel(&h, 1) && h.steps[h.at].rows == 3);
     CHECK(travel(&h, -1) && !travel(&h, 2));
     q = h.steps[h.at];
-    CHECK(paint(&q, 0, 0, 4) && record(&h, &q) && !travel(&h, 1));
+    CHECK(paint(&q, 0, 0, 0, 4) && record(&h, &q) && !travel(&h, 1));
     for (int i = 0; i < 2 * HISTORY; ++i) {
-        CHECK(paint(&q, 0, 0, i % 2) && record(&h, &q));
+        CHECK(paint(&q, 0, 0, 0, i % 2) && record(&h, &q));
     }
     int count = 0;
     while (travel(&h, -1)) ++count;
@@ -76,6 +76,162 @@ static void test_format(void)
     CHECK(strstr(text, "81 squares at 8.5 x 8.5 in") && strlen(text) < SHEET_BYTES);
 }
 
+static int design_named(const char *name)
+{
+    for (int id = 1; id <= PATTERN_COUNT; ++id)
+        if (strcmp(patterns[id].name, name) == 0) return id;
+    CHECK(false);
+    return 0;
+}
+
+static void check_block(const Pattern *pattern)
+{
+    CHECK(pattern->count > 0 && pattern->count <= MAX_PIECES);
+    int twice_area = 0;
+    for (int p = 0; p < pattern->count; ++p) {
+        const Patch *patch = &pattern->patches[p];
+        int n = patch->vertices, x = 0, y = 0;
+        CHECK(n >= 3 && n <= MAX_VERTICES && patch->fabric < FABRICS);
+        for (int v = 0; v < n; ++v) {
+            Point a = patch->point[v], b = patch->point[(v + 1) % n], c = patch->point[(v + 2) % n];
+            CHECK(a.x <= BLOCK_UNITS && a.y <= BLOCK_UNITS);
+            CHECK((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) > 0);
+            twice_area += a.x * b.y - b.x * a.y;
+        }
+        for (int turn = 1; turn <= 4; ++turn) {
+            x = y = 0;
+            for (int v = 0; v < n; ++v) {
+                Point rotated = turn_point(patch->point[v], turn);
+                x += rotated.x;
+                y += rotated.y;
+            }
+            CHECK(hit_patch(pattern, turn, (float)x / n, (float)y / n) == p);
+        }
+    }
+    CHECK(twice_area == 2 * BLOCK_UNITS * BLOCK_UNITS);
+    for (int y = 0; y < BLOCK_UNITS; ++y)
+        for (int x = 0; x < BLOCK_UNITS; ++x) {
+            int hits = 0;
+            for (int p = 0; p < pattern->count; ++p) {
+                Pattern single = {.count = 1, .patches = pattern->patches + p};
+                hits += hit_patch(&single, 1, x + 0.219f, y + 0.357f) == 0;
+            }
+            if (hits != 1) fprintf(stderr, "%s at %d,%d has %d hits\n", pattern->name, x, y, hits);
+            CHECK(hits == 1);
+        }
+}
+
+static uint64_t layout_signature(const Quilt *q)
+{
+    /* Normalize fabrics in order of appearance to catch layouts differing only by palette. */
+    int color[FABRICS] = {0}, used = 0;
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (int r = 0; r < q->rows; ++r)
+        for (int c = 0; c < q->cols; ++c) {
+            const Block *block = &q->cell[r][c];
+            const Pattern *pattern = block_pattern(q, block);
+            for (int y = 0; y < BLOCK_UNITS; y += 3)
+                for (int x = 0; x < BLOCK_UNITS; x += 3) {
+                    int p = hit_patch(pattern, block->turn, x + 0.219f, y + 0.357f);
+                    CHECK(p >= 0);
+                    int f = block->fabric[p];
+                    if (!color[f]) color[f] = ++used;
+                    hash = (hash ^ (uint64_t)color[f]) * UINT64_C(1099511628211);
+                }
+        }
+    return hash;
+}
+
+static void test_catalog(void)
+{
+    int ids[PATTERN_COUNT];
+    CHECK(catalog_ids(TRADITIONAL, ids) == 18 && !patterns[ids[17]].modern);
+    CHECK(catalog_ids(MODERN, ids) == 18 && patterns[ids[17]].modern);
+    CHECK(catalog_ids(ALL_PATTERNS, ids) == 36);
+    uint64_t signatures[PATTERN_COUNT * SETTING_COUNT];
+    int layouts = 0;
+    Quilt base = garden_path();
+    CHECK(!arrange(&base, 0, REPEAT) && !arrange(&base, PATTERN_COUNT + 1, REPEAT));
+    CHECK(!arrange(&base, 1, -1) && !arrange(&base, 1, SETTING_COUNT));
+    CHECK(hit_patch(&patterns[0], 0, -1, 0) == -1);
+    for (int id = 1; id <= PATTERN_COUNT; ++id) {
+        const Pattern *pattern = &patterns[id];
+        CHECK(ids[id - 1] == id);
+        check_block(pattern);
+        for (int other = 1; other < id; ++other)
+            CHECK(strcmp(patterns[other].name, pattern->name) != 0);
+        for (int setting = 0; setting < SETTING_COUNT; ++setting) {
+            Quilt q = base, restored = {0};
+            CHECK(arrange(&q, id, setting));
+            CHECK(q.pattern == id && q.setting == setting && q.rows == base.rows &&
+                  q.cols == base.cols && q.inches == base.inches);
+            uint64_t signature = layout_signature(&q);
+            for (int seen = 0; seen < layouts; ++seen) {
+                if (signatures[seen] == signature)
+                    fprintf(stderr, "Identical layouts: %s / %s and %s / %s\n",
+                            pattern->name, setting_name[setting], patterns[seen / SETTING_COUNT + 1].name,
+                            setting_name[seen % SETTING_COUNT]);
+                CHECK(signatures[seen] != signature);
+            }
+            signatures[layouts++] = signature;
+            CHECK(resize_quilt(&q, MAX_SIDE, MAX_SIDE, MAX_PATCH) && arrange(&q, id, setting));
+            char data[PLAN_BYTES], sheet[SHEET_BYTES];
+            size_t size = encode_plan(&q, data);
+            CHECK(decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
+            cutting_sheet(&q, sheet);
+            char final_piece[24];
+            snprintf(final_piece, sizeof final_piece, "Piece %d:", pattern->count);
+            CHECK(strstr(sheet, pattern->name) && strstr(sheet, "Row 9\n") && strstr(sheet, final_piece));
+            CHECK(strlen(sheet) < SHEET_BYTES - 1 && !strstr(sheet, "nan,") && !strstr(sheet, "inf,"));
+        }
+    }
+    CHECK(layouts == 288);
+}
+
+static void test_shaped_plan(void)
+{
+    Quilt q = garden_path(), restored = {0};
+    int id = design_named("Pinwheel");
+    CHECK(arrange(&q, id, BORDER));
+    CHECK(q.cell[0][1].turn == 1 && q.cell[1][4].turn == 2 && q.cell[4][1].turn == 3);
+    CHECK(q.cell[1][0].turn == 4 && q.cell[1][1].turn == 0);
+    CHECK(!paint(&q, 0, 0, -1, 1) && !paint(&q, 1, 1, 1, 1));
+    CHECK(paint(&q, 0, 0, 0, 1) && q.cell[0][0].fabric[1] == 0);
+    int counts[FABRICS];
+    count_pieces(&q, counts);
+    CHECK(memcmp(counts, (int[]){73, 1, 0, 63, 0}, sizeof counts) == 0);
+    char data[PLAN_BYTES], sheet[SHEET_BYTES];
+    size_t size = encode_plan(&q, data);
+    CHECK(strncmp(data, "PATCHWORK 2\n5 5 4 05 6\n1BAADADDA ", 33) == 0);
+    CHECK(decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
+    for (size_t i = 0; i < size; ++i) CHECK(!decode_plan(data, i, &restored));
+    CHECK(!decode_plan(data, size + 1, &restored));
+    const int offsets[] = {11, 17, 18, 19, 20, 21, 22, 23, 24, 32, 33};
+    for (size_t i = 0; i < sizeof offsets / sizeof offsets[0]; ++i) {
+        char *c = &data[offsets[i]], value = *c;
+        *c = '!';
+        CHECK(!decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
+        *c = value;
+    }
+    data[19] = '0';
+    CHECK(!decode_plan(data, size, &restored));
+    data[19] = '5';
+    data[21] = '8';
+    CHECK(!decode_plan(data, size, &restored));
+    CHECK(resize_quilt(&q, 6, 4, 4) && q.cell[4][1].turn == 3 && q.cell[4][1].fabric[0] == 3 &&
+          q.cell[5][0].turn == 0 && q.cell[5][0].fabric[0] == 0);
+    cutting_sheet(&restored, sheet);
+    CHECK(strstr(sheet, "Pinwheel / Border") && strstr(sheet, "Cut 137 pieces for 25 blocks"));
+    CHECK(strstr(sheet, "Template 1: Square, 4.500 x 4.500 in\n  Cut  A 9"));
+    CHECK(strstr(sheet, "Template 2: Triangle, 2.854 x 2.854 in\n  Cut  A 64  B 1  D 63"));
+    CHECK(strstr(sheet, "Cut points: (0.000, 0.000) (2.854, 0.000) (2.854, 2.854)"));
+    CHECK(strstr(sheet, "[R0 B2 A2") && strstr(sheet, "[R90") && strstr(sheet, "[- A1]"));
+    CHECK(strstr(sheet, "Piece 1: (0.000, 0.000) (2.000, 0.000) (2.000, 2.000)"));
+    CHECK(arrange(&q, design_named("Log Cabin"), REPEAT));
+    cutting_sheet(&q, sheet);
+    CHECK(strstr(sheet, "Rectangle, 1.500 x 1.000 in"));
+}
+
 static void test_storage(const char *path)
 {
     Quilt q = garden_path(), other = {0};
@@ -83,8 +239,8 @@ static void test_storage(const char *path)
     CHECK(load_quilt(path, &other) == STORE_MISSING);
     CHECK(save_quilt(path, &q) && load_quilt(path, &other) == STORE_OK);
     CHECK(memcmp(&q, &other, sizeof q) == 0);
-    CHECK(paint(&q, 0, 0, 1) && save_quilt(path, &q));
-    CHECK(load_quilt(path, &other) == STORE_OK && other.cell[0][0] == 1);
+    CHECK(paint(&q, 0, 0, 0, 1) && save_quilt(path, &q));
+    CHECK(load_quilt(path, &other) == STORE_OK && other.cell[0][0].fabric[0] == 1);
     CHECK(SDL_SaveFile(path, "", 0) && load_quilt(path, &other) == STORE_BAD);
     char too_big[PLAN_BYTES] = {0};
     CHECK(SDL_SaveFile(path, too_big, sizeof too_big) && load_quilt(path, &other) == STORE_BAD);
@@ -112,6 +268,11 @@ static void button(App *a, Control id)
     click(a, b.x + b.w / 2, b.y + b.h / 2);
 }
 
+static void choose_box(App *a, SDL_FRect b)
+{
+    click(a, b.x + b.w / 2, b.y + b.h / 2);
+}
+
 static App *start(char *path)
 {
     void *state = NULL;
@@ -127,7 +288,7 @@ static void test_inputs(App *a)
     key(a, SDLK_LEFT, 0); key(a, SDLK_UP, 0); key(a, SDLK_RIGHT, 0); key(a, SDLK_DOWN, 0);
     CHECK(a->row == 1 && a->col == 1);
     key(a, SDLK_SPACE, 0);
-    CHECK(a->history.steps[a->history.at].cell[1][1] == 4);
+    CHECK(a->history.steps[a->history.at].cell[1][1].fabric[0] == 4);
     key(a, SDLK_Z, SDL_KMOD_CTRL); CHECK(a->history.at == 0);
     key(a, SDLK_Y, SDL_KMOD_CTRL); CHECK(a->history.at == 1);
     button(a, UNDO); key(a, SDLK_Z, SDL_KMOD_CTRL | SDL_KMOD_SHIFT);
@@ -142,12 +303,12 @@ static void test_inputs(App *a)
     button(a, SWATCH_B);
     SDL_FRect b = quilt_box(&q, design_mat);
     click(a, b.x + b.w / 2, b.y + b.h / 2);
-    CHECK(a->row == 2 && a->col == 2 && a->history.steps[a->history.at].cell[2][2] == 1);
+    CHECK(a->row == 2 && a->col == 2 && a->history.steps[a->history.at].cell[2][2].fabric[0] == 1);
     click(a, b.x + b.w, b.y + b.h); click(a, 0, 0);
     CHECK(a->row == 2 && a->col == 2);
     CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE && !a->dirty);
     CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
-    button(a, SHEET); CHECK(a->sheet);
+    button(a, SHEET); CHECK(a->screen == SHEET);
     key(a, SDLK_5, 0); CHECK(a->fabric == 1);
     CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
     key(a, SDLK_RETURN, 0);
@@ -156,7 +317,7 @@ static void test_inputs(App *a)
     SDL_free(sheet);
     button(a, SHARE);
     CHECK(strstr(a->status, "copied"));
-    key(a, SDLK_TAB, 0); CHECK(!a->sheet);
+    key(a, SDLK_TAB, 0); CHECK(a->screen == DESIGN);
     key(a, SDLK_S, 0); CHECK(strstr(a->status, "Saved"));
     SDL_Event e = {0}; e.type = SDL_EVENT_WINDOW_EXPOSED;
     CHECK(SDL_AppEvent(a, &e) == SDL_APP_CONTINUE && a->dirty);
@@ -180,10 +341,10 @@ static void test_drawing(App *a)
     Uint8 r, g, blue, alpha;
     draw_app(&frame);
     CHECK(SDL_ReadSurfacePixel(surface, x, y, &r, &g, &blue, &alpha) && g > r);
-    frame.history.steps[frame.history.at].cell[0][0] = 1;
+    frame.history.steps[frame.history.at].cell[0][0].fabric[0] = 1;
     draw_app(&frame);
     CHECK(SDL_ReadSurfacePixel(surface, x, y, &r, &g, &blue, &alpha) && r > g);
-    frame.sheet = true;
+    frame.screen = SHEET;
     draw_app(&frame);
     CHECK(SDL_ReadSurfacePixel(surface, x, y, &r, &g, &blue, &alpha) && r > 200);
     close_view(frame.view);
@@ -191,10 +352,67 @@ static void test_drawing(App *a)
     SDL_DestroySurface(surface);
 }
 
+static void test_library_ui(App *a)
+{
+    Quilt original = a->history.steps[a->history.at];
+    int before = a->history.at;
+    key(a, SDLK_P, 0);
+    CHECK(a->screen == LIBRARY && a->chosen == 0 && a->setting == REPEAT);
+    button(a, FILTER_MODERN);
+    CHECK(a->filter == MODERN && a->chosen == 0);
+    key(a, SDLK_LEFT, 0); key(a, SDLK_RIGHT, 0);
+    key(a, SDLK_DOWN, 0); key(a, SDLK_UP, 0);
+    CHECK(a->chosen == 1);
+    button(a, PREV_PAGE); CHECK(a->chosen == 1);
+    key(a, SDLK_PAGEDOWN, 0); CHECK(a->chosen == 6);
+    button(a, NEXT_PAGE); CHECK(a->chosen == 12);
+    button(a, NEXT_PAGE); CHECK(a->chosen == 12);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    key(a, SDLK_PAGEUP, 0); CHECK(a->chosen == 6);
+    key(a, SDLK_1, 0); CHECK(a->filter == ALL_PATTERNS && a->chosen == 0);
+    key(a, SDLK_2, 0); CHECK(a->filter == TRADITIONAL && a->chosen == 0);
+    key(a, SDLK_3, 0); CHECK(a->filter == MODERN && a->chosen == 0);
+    button(a, FILTER_TRADITIONAL);
+    choose_box(a, pattern_card(4));
+    CHECK(a->chosen == 4 && a->history.at == before);
+    key(a, SDLK_LEFTBRACKET, 0); CHECK(a->setting == MEDALLION);
+    key(a, SDLK_RIGHTBRACKET, 0); CHECK(a->setting == REPEAT);
+    choose_box(a, setting_box(BORDER));
+    CHECK(a->setting == BORDER && a->history.at == before);
+    key(a, SDLK_ESCAPE, 0); CHECK(a->screen == DESIGN && a->history.at == before);
+    button(a, LIBRARY);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    key(a, SDLK_RETURN, 0);
+    CHECK(a->screen == DESIGN && a->history.at == before + 1);
+    Quilt q = a->history.steps[a->history.at];
+    CHECK(q.pattern == design_named("Pinwheel") && q.setting == BORDER);
+    CHECK(q.rows == original.rows && q.cols == original.cols && q.inches == original.inches);
+    CHECK(load_quilt(a->path, &q) == STORE_OK && q.cell[0][0].fabric[0] == 3);
+    SDL_FRect b = quilt_box(&q, design_mat);
+    float side = b.w / q.cols;
+    click(a, b.x + side * 0.4f, b.y + side * 0.1f);
+    CHECK(a->patch == 0 && a->history.steps[a->history.at].cell[0][0].fabric[0] == 1);
+    CHECK(a->history.steps[a->history.at].cell[0][0].fabric[1] == 0);
+    key(a, SDLK_RIGHTBRACKET, 0); CHECK(a->patch == 1);
+    key(a, SDLK_LEFTBRACKET, 0); CHECK(a->patch == 0);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    button(a, SHEET); CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    button(a, SHARE);
+    char *text = SDL_GetClipboardText();
+    CHECK(text && strstr(text, "Pinwheel / Border") && strstr(text, "Triangle, 2.854 x 2.854"));
+    SDL_free(text);
+    button(a, UNDO); button(a, UNDO);
+    CHECK(a->history.at == before && memcmp(&a->history.steps[before], &original, sizeof original) == 0);
+    button(a, REDO);
+    CHECK(a->history.steps[a->history.at].pattern == design_named("Pinwheel"));
+    button(a, UNDO);
+    button(a, DESIGN);
+}
+
 int main(void)
 {
     SDL_SetMainReady();
-    test_quilt(); test_history(); test_format();
+    test_quilt(); test_history(); test_format(); test_catalog(); test_shaped_plan();
     char *dir = SDL_GetPrefPath("PatchworkTests", "Unit");
     CHECK(dir);
     char *path, *bad;
@@ -203,9 +421,9 @@ int main(void)
     test_storage(path);
     App *a = start(path);
     CHECK(strcmp(SDL_GetRendererName(a->renderer), "software") == 0);
-    test_inputs(a); test_drawing(a);
+    test_inputs(a); test_drawing(a); test_library_ui(a);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
-    a = start(path); CHECK(a->history.steps[0].cell[2][2] == 1);
+    a = start(path); CHECK(a->history.steps[0].cell[2][2].fabric[0] == 1);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     CHECK(SDL_SaveFile(path, "broken", 6));
     a = start(path); key(a, SDLK_SPACE, 0);

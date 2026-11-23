@@ -41,10 +41,10 @@ def run(directory, check_file, renderer):
                             return gl && !gl.isContextLost();
                         }""")
 
-                def center_patch():
+                def pixels(x, y, side=8):
                     # Sample the interior, away from the cursor outline and seams.
                     page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
-                    return page.screenshot(clip={"x": 362, "y": 390, "width": 16, "height": 16})
+                    return page.screenshot(clip={"x": x, "y": y, "width": side, "height": side})
 
                 def click_at(x, y):
                     b = canvas.bounding_box()
@@ -54,44 +54,83 @@ def run(directory, check_file, renderer):
                     page.wait_for_function("text => (localStorage.getItem('patchwork.plan.v1') || '').includes(text)",
                                            arg=text, timeout=8000)
 
+                def view_contains(text):
+                    page.get_by_role("status").filter(has_text=text).wait_for()
+
+                def download_sheet():
+                    click_at(585, 36)
+                    with page.expect_download(timeout=8000) as event:
+                        click_at(885, 583)
+                    download = event.value
+                    assert download.suggested_filename == "patchwork-cutting-sheet.txt"
+                    return Path(download.path()).read_text()
+
                 open_plan(f"http://127.0.0.1:{server.server_port}/")
-                honey = center_patch()
+                honey = pixels(362, 390, 16)
                 click_at(850, 228)
                 click_at(370, 398)
                 saved_contains("DBBBD")
-                assert center_patch() != honey
+                assert pixels(362, 390, 16) != honey
                 click_at(899, 36)
                 saved_contains("DBEBD")
-                assert center_patch() == honey
+                assert pixels(362, 390, 16) == honey
                 click_at(995, 36)
                 saved_contains("DBBBD")
                 page.keyboard.press("c")
                 saved_contains("5 6 4")
                 open_plan()
-                click_at(585, 36)
-                with page.expect_download(timeout=8000) as event:
-                    click_at(885, 583)
-                download = event.value
-                assert download.suggested_filename == "patchwork-cutting-sheet.txt"
-                sheet = Path(download.path()).read_text()
+                sheet = download_sheet()
                 assert "30 squares at 4.5 x 4.5 in" in sheet and "24 x 20 in" in sheet
                 assert "D B B B D A" in sheet and "Madder rose     5" in sheet
+
+                # Preview a modern design, then apply a traditional border with the keyboard.
+                click_at(715, 36)
+                click_at(330, 170)
+                click_at(345, 480)
+                view_contains("Facet Study, Full repeat")
+                click_at(790, 540)
+                view_contains("Facet Study, Columns")
+                saved_contains("PATCHWORK 1")
+                click_at(200, 170)
+                click_at(345, 480)
+                click_at(790, 584)
+                view_contains("Pinwheel, Border")
+                page.keyboard.press("Enter")
+                view_contains("Design wall. Pinwheel.")
+                saved_contains("PATCHWORK 2\n5 6 4 05 6\n1DAADADDA ")
+
+                indigo = pixels(152, 201)
+                neighbor = pixels(133, 217)
+                click_at(160, 205)
+                saved_contains("1BAADADDA ")
+                rose = pixels(152, 201)
+                assert rose != indigo and pixels(133, 217) == neighbor
+                click_at(899, 36)
+                saved_contains("1DAADADDA ")
+                assert pixels(152, 201) == indigo
+                click_at(995, 36)
+                saved_contains("1BAADADDA ")
+                open_plan()
+                view_contains("Design wall. Pinwheel.")
+                assert pixels(152, 201) == rose and pixels(133, 217) == neighbor
+                sheet = download_sheet()
+                assert "Pinwheel / Border" in sheet and "Cut 156 pieces for 30 blocks" in sheet
+                assert "Triangle, 2.854 x 2.854 in" in sheet and "[- A1]" in sheet
+                assert "[R0 B2 A2" in sheet and "[R90" in sheet
+
                 page.evaluate("localStorage.setItem('patchwork.plan.v1', 'broken')")
                 open_plan()
                 page.keyboard.press("Space")
                 assert page.evaluate("localStorage.getItem('patchwork.plan.v1')") == "broken"
                 if check_file:
                     open_plan(Path(directory, "index.html").as_uri())
-                    click_at(585, 36)
-                    with page.expect_download(timeout=8000) as event:
-                        click_at(885, 583)
-                    assert "25 squares at 4.5 x 4.5 in" in Path(event.value.path()).read_text()
+                    assert "25 squares at 4.5 x 4.5 in" in download_sheet()
                 assert not errors, errors
                 browser.close()
         finally:
             server.shutdown()
             thread.join()
-    print(f"Browser journey passed with {renderer}: paint, undo, redo, resize, reload and download.")
+    print(f"Browser journey passed with {renderer}: squares, pattern previews, triangle paint, reload and download.")
 
 
 if __name__ == "__main__":

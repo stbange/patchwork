@@ -1,4 +1,9 @@
 mergeInto(LibraryManager.library, {
+  browser_describe_view: function (source) {
+    var description = UTF8ToString(source);
+    var status = document.getElementById('current-view');
+    if (status.textContent !== description) status.textContent = description;
+  },
   browser_load: function (target, capacity) {
     try {
       var data = localStorage.getItem('patchwork.plan.v1');

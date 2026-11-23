@@ -31,7 +31,7 @@ file(WRITE "${stb_dir}/truetype.c" "#define STB_TRUETYPE_IMPLEMENTATION
 #include \"stb_truetype.h\"
 ")
 add_library(truetype STATIC "${stb_dir}/truetype.c")
-add_library(workroom STATIC src/quilt.c src/storage.c src/draw.c src/app.c)
+add_library(workroom STATIC src/quilt.c src/patterns.c src/cutting.c src/storage.c src/draw.c src/app.c)
 target_include_directories(workroom PUBLIC src PRIVATE "${stb_dir}")
 target_link_libraries(workroom PUBLIC SDL3::SDL3 PRIVATE truetype)
 if(NOT MSVC)

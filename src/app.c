@@ -28,8 +28,8 @@ static void persist(App *a)
 
 static void click_control(App *a, Control id)
 {
-    if (id == DESIGN || id == SHEET) {
-        a->sheet = id == SHEET;
+    if (id <= LIBRARY) {
+        a->screen = id;
     } else if (id == UNDO || id == REDO) {
         if (travel(&a->history, id == UNDO ? -1 : 1)) persist(a);
     } else if (id >= SWATCH_A && id <= SWATCH_E) {
@@ -41,6 +41,24 @@ static void click_control(App *a, Control id)
 #else
         else a->status = "Cutting sheet copied. Paste it into a document to print.";
 #endif
+    } else if (id >= FILTER_ALL && id <= FILTER_MODERN) {
+        PatternFilter filter = (PatternFilter)(id - FILTER_ALL);
+        if (a->filter != filter) a->chosen = 0;
+        a->filter = filter;
+    } else if (id == PREV_PAGE || id == NEXT_PAGE) {
+        int ids[PATTERN_COUNT];
+        int count = catalog_ids(a->filter, ids);
+        int start = a->chosen / CARDS_PER_PAGE * CARDS_PER_PAGE;
+        int next = start + (id == NEXT_PAGE ? CARDS_PER_PAGE : -CARDS_PER_PAGE);
+        if (next >= 0 && next < count) a->chosen = next;
+    } else if (id == APPLY) {
+        int ids[PATTERN_COUNT];
+        catalog_ids(a->filter, ids);
+        Quilt q = a->history.steps[a->history.at];
+        if (arrange(&q, ids[a->chosen], a->setting) && record(&a->history, &q)) persist(a);
+        a->screen = DESIGN;
+        a->patch = 0;
+        a->cursor = false;
     } else {
         Quilt q = a->history.steps[a->history.at];
         int change = (id - COL_LESS) % 2 ? 1 : -1;
@@ -52,13 +70,14 @@ static void click_control(App *a, Control id)
     const Quilt *q = &a->history.steps[a->history.at];
     a->row = SDL_min(a->row, q->rows - 1);
     a->col = SDL_min(a->col, q->cols - 1);
+    a->patch = SDL_min(a->patch, block_pattern(q, &q->cell[a->row][a->col])->count - 1);
     a->dirty = true;
 }
 
 static void place(App *a)
 {
     Quilt q = a->history.steps[a->history.at];
-    if (paint(&q, a->row, a->col, a->fabric) && record(&a->history, &q)) persist(a);
+    if (paint(&q, a->row, a->col, a->patch, a->fabric) && record(&a->history, &q)) persist(a);
     a->dirty = true;
 }
 
@@ -66,27 +85,78 @@ static void pointer(App *a, float x, float y)
 {
     SDL_FPoint point = {x, y};
     for (Control id = DESIGN; id < CONTROL_COUNT; ++id) {
-        bool visible = id <= REDO || (a->sheet ? id == SHARE : id != SHARE);
+        bool visible = id <= REDO ||
+                       (a->screen == DESIGN && id >= SWATCH_A && id <= PATCH_MORE) ||
+                       (a->screen == SHEET && id == SHARE) ||
+                       (a->screen == LIBRARY && id >= FILTER_ALL);
         if (visible && SDL_PointInRectFloat(&point, &control_box[id])) {
             click_control(a, id);
             return;
         }
     }
+    if (a->screen == LIBRARY) {
+        int ids[PATTERN_COUNT];
+        int count = catalog_ids(a->filter, ids);
+        int start = a->chosen / CARDS_PER_PAGE * CARDS_PER_PAGE;
+        for (int i = 0; i < CARDS_PER_PAGE && start + i < count; ++i) {
+            SDL_FRect card = pattern_card(i);
+            if (SDL_PointInRectFloat(&point, &card)) a->chosen = start + i;
+        }
+        for (int i = 0; i < SETTING_COUNT; ++i) {
+            SDL_FRect setting = setting_box(i);
+            if (SDL_PointInRectFloat(&point, &setting)) a->setting = (QuiltSetting)i;
+        }
+        a->dirty = true;
+        return;
+    }
+    if (a->screen != DESIGN) return;
     const Quilt *q = &a->history.steps[a->history.at];
     SDL_FRect board = quilt_box(q, design_mat);
-    if (!a->sheet && x >= board.x && x < board.x + board.w &&
-        y >= board.y && y < board.y + board.h) {
-        a->row = (int)((y - board.y) / (board.h / q->rows));
-        a->col = (int)((x - board.x) / (board.w / q->cols));
+    if (x >= board.x && x < board.x + board.w && y >= board.y && y < board.y + board.h) {
+        float side = board.w / q->cols;
+        float u = (x - board.x) / side, v = (y - board.y) / side;
+        int col = SDL_min((int)u, q->cols - 1), row = SDL_min((int)v, q->rows - 1);
+        const Block *block = &q->cell[row][col];
+        int patch = hit_patch(block_pattern(q, block), block->turn,
+                              (u - col) * BLOCK_UNITS, (v - row) * BLOCK_UNITS);
+        if (patch < 0) return;
+        a->row = row;
+        a->col = col;
+        a->patch = patch;
         a->cursor = true;
         place(a);
     }
 }
 
+static void library_key(App *a, SDL_Keycode key)
+{
+    int ids[PATTERN_COUNT];
+    int count = catalog_ids(a->filter, ids);
+    switch (key) {
+    case SDLK_ESCAPE: click_control(a, DESIGN); break;
+    case SDLK_RETURN: case SDLK_SPACE: click_control(a, APPLY); break;
+    case SDLK_PAGEUP: click_control(a, PREV_PAGE); break;
+    case SDLK_PAGEDOWN: click_control(a, NEXT_PAGE); break;
+    case SDLK_1: case SDLK_2: case SDLK_3:
+        click_control(a, (Control)(FILTER_ALL + key - SDLK_1));
+        break;
+    case SDLK_LEFT: a->chosen = SDL_max(0, a->chosen - 1); break;
+    case SDLK_RIGHT: a->chosen = SDL_min(count - 1, a->chosen + 1); break;
+    case SDLK_UP: a->chosen = SDL_max(0, a->chosen - CARDS_PER_ROW); break;
+    case SDLK_DOWN: a->chosen = SDL_min(count - 1, a->chosen + CARDS_PER_ROW); break;
+    case SDLK_LEFTBRACKET: case SDLK_RIGHTBRACKET:
+        a->setting = (QuiltSetting)((a->setting + SETTING_COUNT + (key == SDLK_RIGHTBRACKET ? 1 : -1)) %
+                                    SETTING_COUNT);
+        break;
+    default: break;
+    }
+    a->dirty = true;
+}
+
 static void keyboard(App *a, SDL_Keycode key, SDL_Keymod mod)
 {
     bool shift = (mod & SDL_KMOD_SHIFT) != 0;
-    if (key == SDLK_TAB) { click_control(a, a->sheet ? DESIGN : SHEET); return; }
+    if (key == SDLK_TAB) { click_control(a, a->screen == DESIGN ? SHEET : DESIGN); return; }
     if (key == SDLK_Z && (mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI))) {
         click_control(a, shift ? REDO : UNDO);
         return;
@@ -94,7 +164,9 @@ static void keyboard(App *a, SDL_Keycode key, SDL_Keymod mod)
     if (key == SDLK_Y && (mod & SDL_KMOD_CTRL)) { click_control(a, REDO); return; }
     if (key == SDLK_S) { persist(a); a->dirty = true; return; }
     if (mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI | SDL_KMOD_ALT)) return;
-    if (a->sheet) {
+    if (key == SDLK_P) { click_control(a, a->screen == LIBRARY ? DESIGN : LIBRARY); return; }
+    if (a->screen == LIBRARY) { library_key(a, key); return; }
+    if (a->screen == SHEET) {
         if (key == SDLK_RETURN || key == SDLK_SPACE) click_control(a, SHARE);
         return;
     }
@@ -106,9 +178,17 @@ static void keyboard(App *a, SDL_Keycode key, SDL_Keymod mod)
     case SDLK_MINUS: click_control(a, PATCH_LESS); break;
     case SDLK_PLUS: case SDLK_EQUALS: click_control(a, PATCH_MORE); break;
     case SDLK_SPACE: case SDLK_RETURN: a->cursor = true; place(a); break;
+    case SDLK_LEFTBRACKET: case SDLK_RIGHTBRACKET: {
+        int count = block_pattern(q, &q->cell[a->row][a->col])->count;
+        a->patch = (a->patch + count + (key == SDLK_RIGHTBRACKET ? 1 : -1)) % count;
+        a->cursor = true;
+        a->dirty = true;
+        break;
+    }
     case SDLK_LEFT: case SDLK_RIGHT: case SDLK_UP: case SDLK_DOWN:
         a->col = SDL_clamp(a->col + (key == SDLK_RIGHT) - (key == SDLK_LEFT), 0, q->cols - 1);
         a->row = SDL_clamp(a->row + (key == SDLK_DOWN) - (key == SDLK_UP), 0, q->rows - 1);
+        a->patch = 0;
         a->cursor = true;
         a->dirty = true;
         break;

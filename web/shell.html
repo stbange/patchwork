@@ -7,9 +7,11 @@
 body {display:grid;place-items:center;color:#253f38;font:18px system-ui,sans-serif}
 canvas {display:block;width:min(100vw,150vh);height:auto;max-height:100vh;aspect-ratio:3/2;outline-offset:-3px;touch-action:none}
 #loading {position:absolute;pointer-events:none}
+#current-view {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 </style></head><body>
 <p id="loading" role="status">Opening the design wall…</p>
-<canvas id="canvas" width="1080" height="720" tabindex="0" aria-label="Quilt design wall. Choose a fabric with 1 to 5, move with arrow keys, and press Space to sew a square. Press Tab for the cutting sheet."></canvas>
+<canvas id="canvas" width="1080" height="720" tabindex="0" aria-label="Patchwork planner. Press P for patterns. In the library, press 1 to 3 to filter, arrows for designs, brackets for settings, and Enter to apply. On the design wall, press 1 to 5 for fabric, arrows to move, brackets for pieces, and Space to place a piece. Press Tab for the cutting sheet."></canvas>
+<p id="current-view" role="status"></p>
 <script>
 var Module = {
   canvas: document.getElementById('canvas'),

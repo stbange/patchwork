@@ -6,6 +6,14 @@ A design wall for a home quilter. Match five scraps from your fabric basket to t
 
 ![The Garden Path table topper on the design wall, with five fabric swatches and quilt size controls](docs/design-wall.png)
 
+## Browse patterns
+
+Open **Patterns** to browse 36 designs and 288 editable quilt layouts. The traditional collection includes Log Cabin, Flying Geese and Ohio Star. The modern collection includes Facet Study, Honeycomb and Spliced Stripe. Each design comes in eight settings, including full repeats, stripes, borders and medallions.
+
+Choose a design and a setting to preview the quilt at its current size. **Use this pattern** applies the layout. **Undo** restores your previous design. On the design wall, choose a fabric and click an individual piece. The block size is the finished width of the whole block.
+
+Open **Cutting sheet** for fabric quantities and the row map. The copied or downloaded sheet gives the measurements and outline points for each cut template, with a quarter-inch seam allowance. Its block map tells you which fabric and template to use for each piece.
+
 ## Try a table topper
 
 1. Open **Patchwork**. The Garden Path sample has five rows and five columns. Each square measures 4 inches after sewing.
@@ -13,7 +21,7 @@ A design wall for a home quilter. Match five scraps from your fabric basket to t
 3. Open **Cutting sheet**. For the original 20 × 20 inch topper, cut 25 squares at **4½ × 4½ inches**. The extra half inch leaves a quarter-inch seam at both edges of each dimension. Each fabric has a letter and a quantity. The row map shows where each piece goes.
 4. Choose **Copy cutting sheet** on a computer and paste it into a document to print. The web version offers **Download cutting sheet** as a text file. Edits save automatically. Reopen the app in the same browser or desktop account to pick up where you left off.
 
-The first version covers straight-sewn squares for the quilt top. Backing, batting and binding are separate materials. The design wall and cutting sheet use OpenGL on Windows and Linux and WebGL in the browser. The concept also describes an optional 3D table preview and a first sewing session to try with the quilter. [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md)
+The planner covers straight-sewn pieces for the quilt top. Backing, batting and binding are separate materials. The design wall and cutting sheet use OpenGL on Windows and Linux and WebGL in the browser. The concept also describes an optional 3D table preview and a first sewing session to try with the quilter. [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md)
 
 ## Run it
 
@@ -25,16 +33,20 @@ GitHub Pages publishes the browser version after the Linux, Windows and web test
 | Linux x64 | Unzip the artifact, extract the tarball, and run `./patchwork` beside its `assets` folder. The binary is built on Ubuntu 24.04. |
 | Web (offline) | Unzip the artifact and open `index.html` in a desktop browser. The HTML includes the application and fonts. |
 
-The desktop app keeps the current quilt in SDL's per-user preference directory under `Patchwork/Planner/quilt.pw`. Launch `patchwork --project path/to/topper.pw` to work in a particular file. The browser saves in local storage. A damaged plan is preserved and the status bar reports the problem. On desktop, a fresh project path lets you keep working.
+The desktop app keeps the current quilt in SDL's per-user preference directory under `Patchwork/Planner/quilt.pw`. Launch `patchwork --project path/to/topper.pw` to work in a particular file. The browser saves in local storage. Existing square plans open in the updated app. A damaged plan is preserved and the status bar reports the problem. On desktop, a fresh project path lets you keep working.
 
 SDL3 chooses desktop OpenGL first, then OpenGL ES where available. The Emscripten build uses SDL's OpenGL ES 2 renderer on a WebGL canvas. Both can fall back to software rendering when GL is unavailable. The startup log reports the selected backend. On desktop, setting `SDL_RENDER_DRIVER=software` explicitly selects software rendering.
 
 | Keyboard | Action |
 | --- | --- |
 | 1 through 5 | Select a fabric |
-| Arrow keys, then Space | Move to a patch and place the fabric |
+| Arrow keys, [ or ], then Space | Move to a block, select a piece, and place the fabric |
 | C or R, with Shift to decrease | Change columns or rows |
-| + or − | Change the finished size of each square |
+| + or − | Change the finished block size |
+| P | Open or close Patterns |
+| 1 through 3 in Patterns | Show all, traditional, or modern designs |
+| Arrow keys, Page Up or Page Down in Patterns | Browse designs |
+| [ or ], then Enter in Patterns | Choose a setting and apply the preview |
 | Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z | Undo or redo |
 | Tab, then Enter on the cutting sheet | Switch views and take the sheet |
 | S | Retry saving after a storage error |
@@ -67,7 +79,7 @@ ctest --test-dir build-coverage --output-on-failure
 gcovr --root . --filter '^src/' --txt --fail-under-line 95 build-coverage/CMakeFiles/workroom.dir
 ```
 
-The desktop journey opens the real SDL window, verifies the OpenGL backend, edits a patch, checks undo and redo, adds a column, restarts the process and reads the resulting sheet from the clipboard. Linux uses Xvfb with GLX, xdotool and xclip. Windows uses Win32 window messages and the system clipboard. The Windows CI runner uses Mesa for OpenGL. The web journey checks the live WebGL context, compares pixels inside a patch before and after editing, and reads the downloaded sheet after a reload. It repeats the edit with WebGL disabled to exercise the software fallback.
+The unit suite checks the geometry of every block design, verifies that all 288 layouts are distinct, and round-trips their saves. The desktop journey opens the real SDL window, checks OpenGL, edits a square and a rotated triangle, then reopens both plans and checks the clipboard. Linux uses Xvfb with GLX, xdotool and xclip. Windows uses Win32 window messages and the system clipboard. The Windows CI runner uses Mesa for OpenGL. The web journey previews modern and traditional designs, compares rendered pixels before and after a triangle edit, and reads the downloaded sheet after reloading. It repeats the journey using software rendering.
 
 ```sh
 xvfb-run -a -s '-screen 0 1440x940x24' python3 tests/desktop_e2e.py build/app/patchwork
