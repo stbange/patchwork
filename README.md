@@ -6,20 +6,25 @@ A design wall for a home quilter. Match five scraps from your fabric basket to t
 
 ![The Garden Path table topper on the design wall, with five fabric swatches and quilt size controls](docs/design-wall.png)
 
-## Browse patterns
+## Plan a quilt
 
-Open **Patterns** to browse 36 designs and 288 editable quilt layouts. The traditional collection includes Log Cabin, Flying Geese and Ohio Star. The modern collection includes Facet Study, Honeycomb and Spliced Stripe. Each design comes in eight settings, including full repeats, stripes, borders and medallions.
+1. Open **Patterns** to browse 39 block designs and 312 ready-to-use layouts. Try the linked diamonds in **Storm at Sea** or the strips in **Braided Ribbons**. Use **Fill quilt** for the full preview or **Place block** to put that motif into individual positions. Pick another motif to build a mixed quilt.
+2. On the design wall, choose straight seams, staggered rows or staggered columns. Choose **cm** or **in** and click the size to enter an exact measurement. The size describes the base block before staggering. The cutting sheet calculates the width and height of each piece.
+3. Open **Colors** to apply one of 100 named palettes. Choose a fabric to adjust its red, green and blue sliders or enter a six-digit hex color. Undo works for palette changes and individual fabric edits.
+4. Open **Cutting sheet** for quantities and a row map. **Download PDF** on the web or **Save PDF** on desktop gives you the colored quilt map and cutting instructions. The text sheet gives the same quantities and template measurements. The seam allowance is 1/4 inch, or 0.635 cm.
 
-Choose a design and a setting to preview the quilt at its current size. **Use this pattern** applies the layout. **Undo** restores your previous design. On the design wall, choose a fabric and click an individual piece. The block size is the finished width of the whole block.
+English, German and Polish are available from the language menu next to the logo. The planner uses your device's preferred supported language on the first launch. Language and unit preferences are saved on the device.
 
-Open **Cutting sheet** for fabric quantities and the row map. The copied or downloaded sheet gives the measurements and outline points for each cut template, with a quarter-inch seam allowance. Its block map tells you which fabric and template to use for each piece.
+**Deutsch** Im Sprachmenü **Deutsch** wählen. Über **Muster**, **Farben** und **Zuschnittplan** lassen sich Blöcke kombinieren, Stofffarben ändern und der Plan als PDF speichern.
+
+**Polski** W menu języka wybierz **Polski**. Karty **Wzory**, **Kolory** i **Plan cięcia** pozwalają łączyć bloki, zmieniać kolory tkanin i zapisywać plan jako PDF.
 
 ## Try a table topper
 
 1. Open **Patchwork**. The Garden Path sample has five rows and five columns. Each square measures 4 inches after sewing.
 2. Choose **Madder rose** and click the honey-colored center. Try **Undo** and **Redo** to compare the two designs. Add a row or column if you want a larger piece.
 3. Open **Cutting sheet**. For the original 20 × 20 inch topper, cut 25 squares at **4½ × 4½ inches**. The extra half inch leaves a quarter-inch seam at both edges of each dimension. Each fabric has a letter and a quantity. The row map shows where each piece goes.
-4. Choose **Copy cutting sheet** on a computer and paste it into a document to print. The web version offers **Download cutting sheet** as a text file. Edits save automatically. Reopen the app in the same browser or desktop account to pick up where you left off.
+4. Save or download the PDF to take the map and cutting instructions to the sewing table. Edits save automatically. Reopen the app in the same browser or desktop account to pick up where you left off.
 
 The planner covers straight-sewn pieces for the quilt top. Backing, batting and binding are separate materials. The design wall and cutting sheet use OpenGL on Windows and Linux and WebGL in the browser. The concept also describes an optional 3D table preview and a first sewing session to try with the quilter. [OpenSpec design](openspec/changes/archive/2026-11-22-add-quilt-design-wall/design.md)
 
@@ -46,9 +51,14 @@ SDL3 chooses desktop OpenGL first, then OpenGL ES where available. The Emscripte
 | P | Open or close Patterns |
 | 1 through 3 in Patterns | Show all, traditional, or modern designs |
 | Arrow keys, Page Up or Page Down in Patterns | Browse designs |
-| [ or ], then Enter in Patterns | Choose a setting and apply the preview |
+| [ or ], then Enter in Patterns | Choose a setting and fill the quilt |
+| B in Patterns | Pick the motif for individual blocks. Use brackets to turn it before placing and Esc to finish. |
+| F | Open or close Colors |
+| L, then 1 through 3 | Choose English, German, or Polish |
+| U | Switch inches and centimetres |
+| M | Enter a finished block size |
 | Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z | Undo or redo |
-| Tab, then Enter on the cutting sheet | Switch views and take the sheet |
+| Tab, then D on the cutting sheet | Open the cutting sheet and save the PDF |
 | S | Retry saving after a storage error |
 
 ## Build and test
@@ -79,10 +89,10 @@ ctest --test-dir build-coverage --output-on-failure
 gcovr --root . --filter '^src/' --txt --fail-under-line 95 build-coverage/CMakeFiles/workroom.dir
 ```
 
-The unit suite checks the geometry of every block design, verifies that all 288 layouts are distinct, and round-trips their saves. The desktop journey opens the real SDL window, checks OpenGL, edits a square and a rotated triangle, then reopens both plans and checks the clipboard. Linux uses Xvfb with GLX, xdotool and xclip. Windows uses Win32 window messages and the system clipboard. The Windows CI runner uses Mesa for OpenGL. The web journey previews modern and traditional designs, compares rendered pixels before and after a triangle edit, and reads the downloaded sheet after reloading. It repeats the journey using software rendering.
+The unit suite checks the geometry of every block design, verifies that all 312 layouts and 100 palettes are distinct, and round-trips the plan formats. The desktop journey checks OpenGL, saving, and the system clipboard. Linux uses Xvfb with GLX, xdotool and xclip and verifies native PDF saving. Windows uses Win32 window messages and Mesa for OpenGL. The browser journey covers language selection, unit changes, mixed blocks, custom colors and PDF download with both WebGL and software rendering. Install Poppler to check the downloaded PDF's text in the browser tests.
 
 ```sh
-xvfb-run -a -s '-screen 0 1440x940x24' python3 tests/desktop_e2e.py build/app/patchwork
+xvfb-run -a -s '-screen 0 1440x940x24 -noreset' python3 tests/desktop_e2e.py build/app/patchwork
 # Windows: python tests/desktop_e2e.py build/app/Release/patchwork.exe
 python -m pip install playwright==1.62.0
 python -m playwright install chromium

@@ -219,50 +219,90 @@ static const Patch field_notes[] = {
     BACK(16,4,8,8,E,D), SLASH(16,12,8,8,D,C)
 };
 
-#define FAMILY(name,block,is_modern) {name, block, sizeof block / sizeof *block, is_modern}
-/* Project files use these indices and piece orders. Append future designs at the end. */
-const Pattern patterns[PATTERN_COUNT + 1] = {
-    FAMILY("Garden path", square, false),
-    FAMILY("Nine Patch", nine_patch, false),
-    FAMILY("Rail Fence", rail_fence, false),
-    FAMILY("Log Cabin", log_cabin, false),
-    FAMILY("Courthouse Steps", courthouse_steps, false),
-    FAMILY("Pinwheel", pinwheel, false),
-    FAMILY("Broken Dishes", broken_dishes, false),
-    FAMILY("Hourglass", hourglass, false),
-    FAMILY("Flying Geese", flying_geese, false),
-    FAMILY("Square in a Square", square_in_square, false),
-    FAMILY("Shoo Fly", shoo_fly, false),
-    FAMILY("Churn Dash", churn_dash, false),
-    FAMILY("Friendship Star", friendship_star, false),
-    FAMILY("Ohio Star", ohio_star, false),
-    FAMILY("Sawtooth Star", sawtooth_star, false),
-    FAMILY("Snowball", snowball, false),
-    FAMILY("Bear's Paw", bear_paw, false),
-    FAMILY("Double Four Patch", double_four_patch, false),
-    FAMILY("Dutchman's Puzzle", dutchmans_puzzle, false),
-    FAMILY("Offset Bars", offset_bars, true),
-    FAMILY("Bento Box", bento_box, true),
-    FAMILY("Split Horizon", split_horizon, true),
-    FAMILY("Color Current", color_current, true),
-    FAMILY("Facet Study", facet_study, true),
-    FAMILY("Kite Field", kite_field, true),
-    FAMILY("Honeycomb", honeycomb, true),
-    FAMILY("Hour Shift", hour_shift, true),
-    FAMILY("Paper Planes", paper_planes, true),
-    FAMILY("Broken Chevron", broken_chevron, true),
-    FAMILY("Switchback", switchback, true),
-    FAMILY("Window Lights", window_lights, true),
-    FAMILY("Terraced Steps", terraced_steps, true),
-    FAMILY("Confetti", confetti, true),
-    FAMILY("Echo Frames", echo_frames, true),
-    FAMILY("Crosswind", crosswind, true),
-    FAMILY("Spliced Stripe", spliced_stripe, true),
-    FAMILY("Field Notes", field_notes, true)
+#define DIAMOND_CELL(x,y,w,h,d,sky) \
+    QUAD((x)+(w)/2,y, (x)+(w),(y)+(h)/2, (x)+(w)/2,(y)+(h), x,(y)+(h)/2, d), \
+    TRI(x,y, (x)+(w)/2,y, x,(y)+(h)/2, sky), \
+    TRI((x)+(w)/2,y, (x)+(w),y, (x)+(w),(y)+(h)/2, sky), \
+    TRI((x)+(w),(y)+(h)/2, (x)+(w),(y)+(h), (x)+(w)/2,(y)+(h), sky), \
+    TRI(x,(y)+(h)/2, (x)+(w)/2,(y)+(h), x,(y)+(h), sky)
+
+static const Patch storm_at_sea[] = {
+    RECT(0,0,6,6,D), DIAMOND_CELL(6,0,12,6,C,A), RECT(18,0,6,6,D),
+    G_LEFT(0,6,6,C,A), DIAMOND_CELL(6,6,12,12,D,E), G_RIGHT(18,6,6,C,A),
+    RECT(0,18,6,6,D), DIAMOND_CELL(6,18,12,6,C,A), RECT(18,18,6,6,D)
+};
+static const Patch woven_links[] = {
+    QUAD(0,0, 12,0, 18,6, 0,6, D), TRI(12,0, 24,0, 18,6, B), TRI(24,0, 24,6, 18,6, D),
+    RECT(0,6,8,12,C), DIAMOND_CELL(8,6,8,12,A,E), RECT(16,6,8,12,C),
+    TRI(0,18, 6,18, 0,24, D), TRI(6,18, 12,24, 0,24, B),
+    QUAD(6,18, 24,18, 24,24, 12,24, D)
+};
+static const Patch braided_ribbons[] = {
+    BACK(0,0,12,8,B,D), SLASH(12,0,12,8,C,B),
+    SLASH(0,8,12,8,B,C), BACK(12,8,12,8,D,B),
+    BACK(0,16,12,8,C,A), SLASH(12,16,12,8,E,C)
 };
 
-const char *const setting_name[SETTING_COUNT] = {
-    "Full repeat", "Alternating", "Offset", "Rows", "Columns", "Diagonal", "Border", "Medallion"
+#define FAMILY(en,de,pl,block,is_modern) {{en,de,pl}, block, sizeof block / sizeof *block, is_modern}
+/* Project files use these indices and piece orders. Append future designs at the end. */
+const Pattern patterns[PATTERN_COUNT + 1] = {
+    FAMILY("Garden path", "Gartenpfad", "Ogrodowa ścieżka", square, false),
+    FAMILY("Nine Patch", "Neunerblock", "Dziewięć pól", nine_patch, false),
+    FAMILY("Rail Fence", "Lattenzaun", "Płot z listew", rail_fence, false),
+    FAMILY("Log Cabin", "Blockhaus", "Domek z bali", log_cabin, false),
+    FAMILY("Courthouse Steps", "Gerichtshaustreppe", "Schody do sądu", courthouse_steps, false),
+    FAMILY("Pinwheel", "Windrad", "Wiatraczek", pinwheel, false),
+    FAMILY("Broken Dishes", "Zerbrochene Teller", "Rozbite talerze", broken_dishes, false),
+    FAMILY("Hourglass", "Sanduhr", "Klepsydra", hourglass, false),
+    FAMILY("Flying Geese", "Fliegende Gänse", "Lecące gęsi", flying_geese, false),
+    FAMILY("Square in a Square", "Quadrat im Quadrat", "Kwadrat w kwadracie", square_in_square, false),
+    FAMILY("Shoo Fly", "Shoo Fly", "Shoo Fly", shoo_fly, false),
+    FAMILY("Churn Dash", "Butterfass", "Maselnica", churn_dash, false),
+    FAMILY("Friendship Star", "Freundschaftsstern", "Gwiazda przyjaźni", friendship_star, false),
+    FAMILY("Ohio Star", "Ohio-Stern", "Gwiazda Ohio", ohio_star, false),
+    FAMILY("Sawtooth Star", "Sägezahnstern", "Ząbkowana gwiazda", sawtooth_star, false),
+    FAMILY("Snowball", "Schneeball", "Śnieżna kula", snowball, false),
+    FAMILY("Bear's Paw", "Bärentatze", "Niedźwiedzia łapa", bear_paw, false),
+    FAMILY("Double Four Patch", "Doppelter Viererblock", "Podwójne cztery pola", double_four_patch, false),
+    FAMILY("Dutchman's Puzzle", "Holländisches Rätsel", "Holenderska łamigłówka", dutchmans_puzzle, false),
+    FAMILY("Offset Bars", "Versetzte Streifen", "Przesunięte pasy", offset_bars, true),
+    FAMILY("Bento Box", "Bento-Box", "Pudełko bento", bento_box, true),
+    FAMILY("Split Horizon", "Geteilter Horizont", "Rozdzielony horyzont", split_horizon, true),
+    FAMILY("Color Current", "Farbfluss", "Strumień kolorów", color_current, true),
+    FAMILY("Facet Study", "Facettenstudie", "Studium faset", facet_study, true),
+    FAMILY("Kite Field", "Drachenfeld", "Pole latawców", kite_field, true),
+    FAMILY("Honeycomb", "Waben", "Plaster miodu", honeycomb, true),
+    FAMILY("Hour Shift", "Zeitversatz", "Przesunięcie czasu", hour_shift, true),
+    FAMILY("Paper Planes", "Papierflieger", "Papierowe samoloty", paper_planes, true),
+    FAMILY("Broken Chevron", "Gebrochene Zacken", "Przełamane zygzaki", broken_chevron, true),
+    FAMILY("Switchback", "Serpentinen", "Serpentyna", switchback, true),
+    FAMILY("Window Lights", "Lichter im Fenster", "Światła w oknach", window_lights, true),
+    FAMILY("Terraced Steps", "Terrassenstufen", "Tarasowe stopnie", terraced_steps, true),
+    FAMILY("Confetti", "Konfetti", "Konfetti", confetti, true),
+    FAMILY("Echo Frames", "Rahmen-Echo", "Echo ramek", echo_frames, true),
+    FAMILY("Crosswind", "Seitenwind", "Boczny wiatr", crosswind, true),
+    FAMILY("Spliced Stripe", "Geteilter Streifen", "Łączony pasek", spliced_stripe, true),
+    FAMILY("Field Notes", "Feldnotizen", "Notatki z pola", field_notes, true),
+    FAMILY("Storm at Sea", "Sturm auf See", "Sztorm na morzu", storm_at_sea, false),
+    FAMILY("Woven Links", "Verflochtene Glieder", "Splecione ogniwa", woven_links, true),
+    FAMILY("Braided Ribbons", "Geflochtene Bänder", "Plecione wstążki", braided_ribbons, true)
+};
+
+const char *const setting_name[SETTING_COUNT][LANGUAGE_COUNT] = {
+    {"Full repeat", "Vollflächig", "Pełne powtórzenie"},
+    {"Alternating", "Abwechselnd", "Naprzemiennie"},
+    {"Offset", "Versetzt", "Z przesunięciem"},
+    {"Rows", "Reihen", "Rzędy"},
+    {"Columns", "Spalten", "Kolumny"},
+    {"Diagonal", "Diagonal", "Po przekątnej"},
+    {"Border", "Rand", "Obramowanie"},
+    {"Medallion", "Medaillon", "Medalion"}
+};
+
+const char *const seam_name[SEAM_COUNT][LANGUAGE_COUNT] = {
+    {"Straight grid", "Gerades Raster", "Równa siatka"},
+    {"Staggered rows", "Versetzte Reihen", "Przesunięte rzędy"},
+    {"Staggered columns", "Versetzte Spalten", "Przesunięte kolumny"}
 };
 
 int catalog_ids(PatternFilter filter, int ids[PATTERN_COUNT])
@@ -295,22 +335,59 @@ static int setting_turn(const Quilt *q, int r, int c)
 bool arrange(Quilt *q, int id, int setting)
 {
     if (id < 1 || id > PATTERN_COUNT || setting < 0 || setting >= SETTING_COUNT) return false;
-    Quilt next = {.rows = q->rows, .cols = q->cols, .inches = q->inches,
-                  .pattern = (uint8_t)id, .setting = (uint8_t)setting};
-    for (int r = 0; r < next.rows; ++r)
-        for (int c = 0; c < next.cols; ++c) {
-            Block *block = &next.cell[r][c];
-            block->turn = (uint8_t)setting_turn(&next, r, c);
-            const Pattern *pattern = block_pattern(&next, block);
-            for (int p = 0; p < pattern->count; ++p) block->fabric[p] = pattern->patches[p].fabric;
+    q->pattern = (uint8_t)id;
+    q->setting = (uint8_t)setting;
+    for (int r = 0; r < q->rows; ++r)
+        for (int c = 0; c < q->cols; ++c) {
+            int turn = setting_turn(q, r, c);
+            place_block(&q->cell[r][c], turn ? id : 0, turn);
         }
-    *q = next;
     return true;
 }
 
-const Pattern *block_pattern(const Quilt *q, const Block *block)
+void place_block(Block *block, int id, int turn)
 {
-    return &patterns[block->turn ? q->pattern : 0];
+    *block = (Block){.pattern = (uint8_t)id, .turn = (uint8_t)turn};
+    const Pattern *pattern = block_pattern(block);
+    for (int p = 0; p < pattern->count; ++p) block->fabric[p] = pattern->patches[p].fabric;
+}
+
+const Pattern *block_pattern(const Block *block)
+{
+    return &patterns[block->pattern];
+}
+
+bool mixed_quilt(const Quilt *q)
+{
+    for (int r = 0; r < q->rows; ++r)
+        for (int c = 0; c < q->cols; ++c) {
+            int id = q->cell[r][c].pattern;
+            if (id && id != q->pattern) return true;
+        }
+    return false;
+}
+
+const char *quilt_name(const Quilt *q, Language language)
+{
+    return mixed_quilt(q) ? tr(language, MIXED_NAME) : patterns[q->pattern].name[language];
+}
+
+static double stagger(int edge, int last)
+{
+    return edge > 0 && edge < last ? edge + 0.5 : edge;
+}
+
+BlockBounds block_bounds(const Quilt *q, int row, int col)
+{
+    if (q->seams == BRICK_ROWS && row % 2) {
+        double x = stagger(col, q->cols);
+        return (BlockBounds){x, row, stagger(col + 1, q->cols) - x, 1};
+    }
+    if (q->seams == BRICK_COLUMNS && col % 2) {
+        double y = stagger(row, q->rows);
+        return (BlockBounds){col, y, 1, stagger(row + 1, q->rows) - y};
+    }
+    return (BlockBounds){col, row, 1, 1};
 }
 
 Point turn_point(Point p, int turn)

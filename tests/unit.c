@@ -4,9 +4,12 @@
 #undef main
 #include "app.h"
 #include "storage.h"
+#include "pdf.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static const Preferences english = {ENGLISH, INCHES};
 
 #define CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); exit(1); \
@@ -23,11 +26,11 @@ static void test_quilt(void)
     CHECK(paint(&q, 2, 2, 0, 1) && q.cell[2][2].fabric[0] == 1);
     count_pieces(&q, counts);
     CHECK(counts[1] == 5 && counts[4] == 0 && counts[0] == 8);
-    CHECK(!resize_quilt(&q, 5, 5, 4));
-    CHECK(!resize_quilt(&q, 2, 5, 4) && !resize_quilt(&q, 5, 10, 4));
-    CHECK(!resize_quilt(&q, 5, 5, 1) && !resize_quilt(&q, 5, 5, MAX_PATCH + 1));
-    CHECK(resize_quilt(&q, 3, 7, 8) && q.cell[2][2].fabric[0] == 1 && q.cell[2][5].fabric[0] == 0);
-    CHECK(resize_quilt(&q, 5, 5, 2) && q.cell[4][0].fabric[0] == 0);
+    CHECK(!resize_quilt(&q, 5, 5, 4 * INCH));
+    CHECK(!resize_quilt(&q, 2, 5, 4 * INCH) && !resize_quilt(&q, 5, 10, 4 * INCH));
+    CHECK(!resize_quilt(&q, 5, 5, 1 * INCH) && !resize_quilt(&q, 5, 5, MAX_SIZE + 1));
+    CHECK(resize_quilt(&q, 3, 7, 8 * INCH) && q.cell[2][2].fabric[0] == 1 && q.cell[2][5].fabric[0] == 0);
+    CHECK(resize_quilt(&q, 5, 5, 2 * INCH) && q.cell[4][0].fabric[0] == 0);
 }
 
 static void test_history(void)
@@ -36,7 +39,7 @@ static void test_history(void)
     Quilt q = garden_path();
     h.steps[0] = q;
     CHECK(!record(&h, &q) && !travel(&h, -1) && !travel(&h, 1));
-    CHECK(resize_quilt(&q, 3, 3, 4) && record(&h, &q));
+    CHECK(resize_quilt(&q, 3, 3, 4 * INCH) && record(&h, &q));
     CHECK(travel(&h, -1) && h.steps[h.at].rows == 5 && h.steps[h.at].cell[4][4].fabric[0] == 2);
     CHECK(travel(&h, 1) && h.steps[h.at].rows == 3);
     CHECK(travel(&h, -1) && !travel(&h, 2));
@@ -56,30 +59,30 @@ static void test_format(void)
     char data[PLAN_BYTES], text[SHEET_BYTES];
     size_t size = encode_plan(&original, data);
     CHECK(strcmp(data, "PATCHWORK 1\n5 5 4\nCADAC\nADBDA\nDBEBD\nADBDA\nCADAC\n") == 0);
-    CHECK(decode_plan(data, size, &decoded) && memcmp(&decoded, &original, sizeof decoded) == 0);
+    CHECK(decode_plan(data, size, &decoded) && quilt_equal(&decoded, &original));
     for (size_t i = 0; i < size; ++i) CHECK(!decode_plan(data, i, &decoded));
     CHECK(!decode_plan(data, size + 1, &decoded));
     const int offsets[] = {10, 12, 13, 14, 16, 17, 18, 23};
     for (size_t i = 0; i < sizeof offsets / sizeof offsets[0]; ++i) {
         char *c = &data[offsets[i]], saved = *c;
         *c = '!';
-        CHECK(!decode_plan(data, size, &decoded) && memcmp(&decoded, &original, sizeof decoded) == 0);
+        CHECK(!decode_plan(data, size, &decoded) && quilt_equal(&decoded, &original));
         *c = saved;
     }
-    cutting_sheet(&original, text);
+    CHECK(cutting_sheet(&original, english, text));
     CHECK(strstr(text, "20 x 20 in (50.8 x 50.8 cm)") && strstr(text, "25 squares at 4.5 x 4.5 in"));
     CHECK(strstr(text, "Honey check     1") && strstr(text, "C A D A C\nA D B D A\n"));
-    CHECK(resize_quilt(&original, MAX_SIDE, MAX_SIDE, MAX_PATCH));
+    CHECK(resize_quilt(&original, MAX_SIDE, MAX_SIDE, MAX_SIZE));
     size = encode_plan(&original, data);
     CHECK(size < PLAN_BYTES && decode_plan(data, size, &decoded));
-    cutting_sheet(&decoded, text);
+    CHECK(cutting_sheet(&decoded, english, text));
     CHECK(strstr(text, "81 squares at 8.5 x 8.5 in") && strlen(text) < SHEET_BYTES);
 }
 
 static int design_named(const char *name)
 {
     for (int id = 1; id <= PATTERN_COUNT; ++id)
-        if (strcmp(patterns[id].name, name) == 0) return id;
+        if (strcmp(patterns[id].name[ENGLISH], name) == 0) return id;
     CHECK(false);
     return 0;
 }
@@ -116,7 +119,7 @@ static void check_block(const Pattern *pattern)
                 Pattern single = {.count = 1, .patches = pattern->patches + p};
                 hits += hit_patch(&single, 1, x + 0.219f, y + 0.357f) == 0;
             }
-            if (hits != 1) fprintf(stderr, "%s at %d,%d has %d hits\n", pattern->name, x, y, hits);
+            if (hits != 1) fprintf(stderr, "%s at %d,%d has %d hits\n", pattern->name[ENGLISH], x, y, hits);
             CHECK(hits == 1);
         }
 }
@@ -129,7 +132,7 @@ static uint64_t layout_signature(const Quilt *q)
     for (int r = 0; r < q->rows; ++r)
         for (int c = 0; c < q->cols; ++c) {
             const Block *block = &q->cell[r][c];
-            const Pattern *pattern = block_pattern(q, block);
+            const Pattern *pattern = block_pattern(block);
             for (int y = 0; y < BLOCK_UNITS; y += 3)
                 for (int x = 0; x < BLOCK_UNITS; x += 3) {
                     int p = hit_patch(pattern, block->turn, x + 0.219f, y + 0.357f);
@@ -145,9 +148,9 @@ static uint64_t layout_signature(const Quilt *q)
 static void test_catalog(void)
 {
     int ids[PATTERN_COUNT];
-    CHECK(catalog_ids(TRADITIONAL, ids) == 18 && !patterns[ids[17]].modern);
-    CHECK(catalog_ids(MODERN, ids) == 18 && patterns[ids[17]].modern);
-    CHECK(catalog_ids(ALL_PATTERNS, ids) == 36);
+    CHECK(catalog_ids(TRADITIONAL, ids) == 19 && !patterns[ids[18]].modern);
+    CHECK(catalog_ids(MODERN, ids) == 20 && patterns[ids[19]].modern);
+    CHECK(catalog_ids(ALL_PATTERNS, ids) == PATTERN_COUNT);
     uint64_t signatures[PATTERN_COUNT * SETTING_COUNT];
     int layouts = 0;
     Quilt base = garden_path();
@@ -159,33 +162,33 @@ static void test_catalog(void)
         CHECK(ids[id - 1] == id);
         check_block(pattern);
         for (int other = 1; other < id; ++other)
-            CHECK(strcmp(patterns[other].name, pattern->name) != 0);
+            CHECK(strcmp(patterns[other].name[ENGLISH], pattern->name[ENGLISH]) != 0);
         for (int setting = 0; setting < SETTING_COUNT; ++setting) {
             Quilt q = base, restored = {0};
             CHECK(arrange(&q, id, setting));
             CHECK(q.pattern == id && q.setting == setting && q.rows == base.rows &&
-                  q.cols == base.cols && q.inches == base.inches);
+                  q.cols == base.cols && q.size == base.size);
             uint64_t signature = layout_signature(&q);
             for (int seen = 0; seen < layouts; ++seen) {
                 if (signatures[seen] == signature)
                     fprintf(stderr, "Identical layouts: %s / %s and %s / %s\n",
-                            pattern->name, setting_name[setting], patterns[seen / SETTING_COUNT + 1].name,
-                            setting_name[seen % SETTING_COUNT]);
+                            pattern->name[ENGLISH], setting_name[setting][ENGLISH], patterns[seen / SETTING_COUNT + 1].name[ENGLISH],
+                            setting_name[seen % SETTING_COUNT][ENGLISH]);
                 CHECK(signatures[seen] != signature);
             }
             signatures[layouts++] = signature;
-            CHECK(resize_quilt(&q, MAX_SIDE, MAX_SIDE, MAX_PATCH) && arrange(&q, id, setting));
+            CHECK(resize_quilt(&q, MAX_SIDE, MAX_SIDE, MAX_SIZE) && arrange(&q, id, setting));
             char data[PLAN_BYTES], sheet[SHEET_BYTES];
             size_t size = encode_plan(&q, data);
-            CHECK(decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
-            cutting_sheet(&q, sheet);
+            CHECK(decode_plan(data, size, &restored) && quilt_equal(&q, &restored));
+            CHECK(cutting_sheet(&q, english, sheet));
             char final_piece[24];
             snprintf(final_piece, sizeof final_piece, "Piece %d:", pattern->count);
-            CHECK(strstr(sheet, pattern->name) && strstr(sheet, "Row 9\n") && strstr(sheet, final_piece));
+            CHECK(strstr(sheet, pattern->name[ENGLISH]) && strstr(sheet, "Row 9\n") && strstr(sheet, final_piece));
             CHECK(strlen(sheet) < SHEET_BYTES - 1 && !strstr(sheet, "nan,") && !strstr(sheet, "inf,"));
         }
     }
-    CHECK(layouts == 288);
+    CHECK(layouts == 312);
 }
 
 static void test_shaped_plan(void)
@@ -203,14 +206,14 @@ static void test_shaped_plan(void)
     char data[PLAN_BYTES], sheet[SHEET_BYTES];
     size_t size = encode_plan(&q, data);
     CHECK(strncmp(data, "PATCHWORK 2\n5 5 4 05 6\n1BAADADDA ", 33) == 0);
-    CHECK(decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
+    CHECK(decode_plan(data, size, &restored) && quilt_equal(&q, &restored));
     for (size_t i = 0; i < size; ++i) CHECK(!decode_plan(data, i, &restored));
     CHECK(!decode_plan(data, size + 1, &restored));
     const int offsets[] = {11, 17, 18, 19, 20, 21, 22, 23, 24, 32, 33};
     for (size_t i = 0; i < sizeof offsets / sizeof offsets[0]; ++i) {
         char *c = &data[offsets[i]], value = *c;
         *c = '!';
-        CHECK(!decode_plan(data, size, &restored) && memcmp(&q, &restored, sizeof q) == 0);
+        CHECK(!decode_plan(data, size, &restored) && quilt_equal(&q, &restored));
         *c = value;
     }
     data[19] = '0';
@@ -218,9 +221,9 @@ static void test_shaped_plan(void)
     data[19] = '5';
     data[21] = '8';
     CHECK(!decode_plan(data, size, &restored));
-    CHECK(resize_quilt(&q, 6, 4, 4) && q.cell[4][1].turn == 3 && q.cell[4][1].fabric[0] == 3 &&
+    CHECK(resize_quilt(&q, 6, 4, 4 * INCH) && q.cell[4][1].turn == 3 && q.cell[4][1].fabric[0] == 3 &&
           q.cell[5][0].turn == 0 && q.cell[5][0].fabric[0] == 0);
-    cutting_sheet(&restored, sheet);
+    CHECK(cutting_sheet(&restored, english, sheet));
     CHECK(strstr(sheet, "Pinwheel / Border") && strstr(sheet, "Cut 137 pieces for 25 blocks"));
     CHECK(strstr(sheet, "Template 1: Square, 4.500 x 4.500 in\n  Cut  A 9"));
     CHECK(strstr(sheet, "Template 2: Triangle, 2.854 x 2.854 in\n  Cut  A 64  B 1  D 63"));
@@ -228,7 +231,7 @@ static void test_shaped_plan(void)
     CHECK(strstr(sheet, "[R0 B2 A2") && strstr(sheet, "[R90") && strstr(sheet, "[- A1]"));
     CHECK(strstr(sheet, "Piece 1: (0.000, 0.000) (2.000, 0.000) (2.000, 2.000)"));
     CHECK(arrange(&q, design_named("Log Cabin"), REPEAT));
-    cutting_sheet(&q, sheet);
+    CHECK(cutting_sheet(&q, english, sheet));
     CHECK(strstr(sheet, "Rectangle, 1.500 x 1.000 in"));
 }
 
@@ -238,7 +241,7 @@ static void test_storage(const char *path)
     CHECK(load_quilt(NULL, &other) == STORE_BAD && !save_quilt(NULL, &q));
     CHECK(load_quilt(path, &other) == STORE_MISSING);
     CHECK(save_quilt(path, &q) && load_quilt(path, &other) == STORE_OK);
-    CHECK(memcmp(&q, &other, sizeof q) == 0);
+    CHECK(quilt_equal(&q, &other));
     CHECK(paint(&q, 0, 0, 0, 1) && save_quilt(path, &q));
     CHECK(load_quilt(path, &other) == STORE_OK && other.cell[0][0].fabric[0] == 1);
     CHECK(SDL_SaveFile(path, "", 0) && load_quilt(path, &other) == STORE_BAD);
@@ -247,10 +250,141 @@ static void test_storage(const char *path)
     CHECK(SDL_RemovePath(path));
 }
 
+static void test_preferences(const char *path)
+{
+    Preferences prefs;
+    CHECK(language_from_tag("de-DE") == GERMAN && language_from_tag("PL_pl") == POLISH);
+    CHECK(language_from_tag("EN") == ENGLISH && language_from_tag("eng") == LANGUAGE_COUNT);
+    CHECK(language_from_tag(NULL) == LANGUAGE_COUNT && language_from_tag("f") == LANGUAGE_COUNT);
+    CHECK(!parse_preferences("de cm\n", &prefs) && !parse_preferences("de:cm", &prefs));
+    CHECK(!parse_preferences("fr cm", &prefs) && !parse_preferences("pl mm", &prefs));
+    CHECK(parse_preferences("pl in", &prefs) && prefs.language == POLISH && prefs.unit == INCHES);
+    CHECK(SDL_SetHintWithPriority(SDL_HINT_PREFERRED_LOCALES, "fr_FR,de_DE,pl_PL", SDL_HINT_OVERRIDE));
+    prefs = load_preferences(path);
+    CHECK(prefs.language == GERMAN && prefs.unit == CENTIMETRES);
+    CHECK(save_preferences(path, (Preferences){POLISH, INCHES}));
+    prefs = load_preferences(path);
+    CHECK(prefs.language == POLISH && prefs.unit == INCHES);
+    CHECK(SDL_SaveFile(path, "pl mm", 5));
+    CHECK(load_preferences(path).language == GERMAN);
+    CHECK(SDL_SetHintWithPriority(SDL_HINT_PREFERRED_LOCALES, "fr_FR", SDL_HINT_OVERRIDE));
+    CHECK(load_preferences(NULL).language == ENGLISH);
+    CHECK(SDL_SetHintWithPriority(SDL_HINT_PREFERRED_LOCALES, "en_US", SDL_HINT_OVERRIDE));
+    CHECK(load_preferences(path).unit == INCHES);
+    CHECK(!save_preferences(NULL, prefs) && SDL_RemovePath(path));
+    for (int lang = 0; lang < LANGUAGE_COUNT; ++lang)
+        for (int key = 0; key < TEXT_COUNT; ++key) {
+            const char *text = tr((Language)lang, (Text)key);
+            CHECK(text && *text);
+            for (Uint32 code; (code = SDL_StepUTF8(&text, NULL));)
+                CHECK(code == '\n' || (code >= 32 && code <= 0x17f));
+        }
+}
+
+static Quilt sampler(void)
+{
+    Quilt q = garden_path();
+    CHECK(resize_quilt(&q, 5, 5, 10 * CM));
+    place_block(&q.cell[0][0], design_named("Flying Geese"), 2);
+    place_block(&q.cell[3][1], design_named("Storm at Sea"), 4);
+    q.seams = BRICK_ROWS;
+    palette_colors(15, q.color);
+    q.color[2] = 0x0345ab;
+    return q;
+}
+
+static void test_custom_quilt(void)
+{
+    CHECK(parse_size("10,05", CENTIMETRES) == 10050);
+    CHECK(parse_size("4.125", INCHES) == 10478 && parse_size("5", CENTIMETRES) == MIN_SIZE);
+    CHECK(parse_size("8", INCHES) == MAX_SIZE && parse_size("20.32", CENTIMETRES) == MAX_SIZE);
+    CHECK(parse_size("", INCHES) < 0 && parse_size("10.", CENTIMETRES) < 0);
+    CHECK(parse_size("10.00005", CENTIMETRES) < 0 && parse_size("100", CENTIMETRES) < 0);
+    CHECK(parse_size("10.2x", CENTIMETRES) < 0 && parse_size("10..3", INCHES) < 0);
+    CHECK(parse_size("4.20", CENTIMETRES) < 0 && parse_size("8.01", INCHES) < 0);
+    CHECK(parse_color("#0345aB") == 0x0345ab && parse_color("FFFFFF") == 0xffffff);
+    CHECK(parse_color("000000") == 0 && parse_color("FF000") < 0 && parse_color(":AFFFF") < 0);
+    CHECK(parse_color("12345g") < 0);
+    uint32_t palettes[PALETTE_COUNT][FABRICS];
+    for (int n = 0; n < PALETTE_COUNT; ++n) {
+        palette_colors(n, palettes[n]);
+        char name[PALETTE_NAME_BYTES];
+        palette_name(n, POLISH, name);
+        CHECK(strstr(name, " / "));
+        for (int i = 0; i < n; ++i) CHECK(memcmp(palettes[i], palettes[n], sizeof palettes[n]) != 0);
+        for (int f = 0; f < FABRICS; ++f) CHECK(palettes[n][f] <= 0xffffff);
+    }
+
+    Quilt q = sampler(), copy = {0};
+    CHECK(mixed_quilt(&q) && strcmp(quilt_name(&q, GERMAN), "Sampler-Quilt") == 0);
+    BlockBounds a = block_bounds(&q, 1, 0), b = block_bounds(&q, 1, 4), plain = block_bounds(&q, 0, 0);
+    CHECK(a.w == 1.5 && b.w == 0.5 && b.x + b.w == 5 && plain.w == 1);
+    q.seams = BRICK_COLUMNS;
+    a = block_bounds(&q, 0, 1); b = block_bounds(&q, 4, 1); plain = block_bounds(&q, 0, 0);
+    CHECK(a.h == 1.5 && b.h == 0.5 && b.y + b.h == 5 && plain.h == 1);
+    q.seams = BRICK_ROWS;
+    char data[PLAN_BYTES], sheet[SHEET_BYTES];
+    size_t size = encode_plan(&q, data);
+    CHECK(strncmp(data, "PATCHWORK 3\n5 5 10000 00 0 1\n", 29) == 0 && strstr(data, "0345AB"));
+    CHECK(decode_plan(data, size, &copy) && quilt_equal(&q, &copy));
+    for (size_t i = 0; i < size; ++i) CHECK(!decode_plan(data, i, &copy));
+    const char *bad = strchr(data + 29, '\n') + 1;
+    size_t first_block = (size_t)(bad - data);
+    size_t corrupt[] = {10, 16, 25, 27, 29, 35, first_block, first_block + 2, first_block + 3};
+    for (size_t i = 0; i < sizeof corrupt / sizeof corrupt[0]; ++i) {
+        char value = data[corrupt[i]];
+        data[corrupt[i]] = '?';
+        CHECK(!decode_plan(data, size, &copy) && quilt_equal(&q, &copy));
+        data[corrupt[i]] = value;
+    }
+    data[first_block + 2] = '0';
+    CHECK(!decode_plan(data, size, &copy));
+    data[first_block] = data[first_block + 1] = '0'; data[first_block + 2] = '1';
+    CHECK(!decode_plan(data, size, &copy));
+    CHECK(cutting_sheet(&q, (Preferences){POLISH, CENTIMETRES}, sheet));
+    CHECK(strstr(sheet, "PLAN CIĘCIA") && strstr(sheet, "50 × 50 cm") && strstr(sheet, "0,635 cm"));
+    CHECK(strstr(sheet, "16,270 × 11,270 cm") && strstr(sheet, "Lecące gęsi") && strstr(sheet, "Sztorm na morzu"));
+    CHECK(strstr(sheet, "#0345AB") && strstr(sheet, "Przesunięte rzędy") && strstr(sheet, "; 0,000)"));
+    CHECK(cutting_sheet(&q, (Preferences){GERMAN, INCHES}, sheet));
+    CHECK(strstr(sheet, "ZUSCHNITTPLAN") && strstr(sheet, "19,685 × 19,685 Zoll"));
+    CHECK(strstr(sheet, "1/4 Zoll") && strstr(sheet, "Sturm auf See"));
+    CHECK(strstr(seam_measure((Preferences){ENGLISH, CENTIMETRES}), "0.635"));
+}
+
+static bool pdf_has(const void *source, size_t count, const char *needle)
+{
+    const char *text = source;
+    size_t length = strlen(needle);
+    for (size_t i = 0; i + length <= count; ++i)
+        if (memcmp(text + i, needle, length) == 0) return true;
+    return false;
+}
+
+static void test_pdf(void)
+{
+    Quilt q = sampler();
+    SDL_IOStream *pdf = make_pdf(&q, (Preferences){POLISH, CENTIMETRES});
+    CHECK(pdf);
+    size_t size = (size_t)SDL_GetIOSize(pdf);
+    const char *data = pdf_data(pdf);
+    CHECK(size > 240000 && data && memcmp(data, "%PDF-1.4\n", 9) == 0);
+    CHECK(pdf_has(data, size, "/Lang (pl)") && pdf_has(data, size, "/ToUnicode 7 0 R"));
+    CHECK(pdf_has(data, size, "startxref\n") && pdf_has(data, size, "<0119>") && pdf_has(data, size, "h B\n"));
+    CHECK(memcmp(data + size - 6, "%%EOF\n", 6) == 0 && SDL_CloseIO(pdf));
+}
+
 static void key(App *a, SDL_Keycode code, SDL_Keymod mod)
 {
     SDL_Event e = {0};
     e.type = SDL_EVENT_KEY_DOWN; e.key.key = code; e.key.mod = mod;
+    CHECK(SDL_AppEvent(a, &e) == SDL_APP_CONTINUE);
+}
+
+static void type(App *a, const char *text)
+{
+    SDL_Event e = {0};
+    e.type = SDL_EVENT_TEXT_INPUT;
+    e.text.text = text;
     CHECK(SDL_AppEvent(a, &e) == SDL_APP_CONTINUE);
 }
 
@@ -278,7 +412,9 @@ static App *start(char *path)
     void *state = NULL;
     char *args[] = {"patchwork", "--project", path, NULL};
     CHECK(SDL_AppInit(&state, 3, args) == SDL_APP_CONTINUE);
-    return state;
+    App *a = state;
+    a->prefs = english;
+    return a;
 }
 
 static void test_inputs(App *a)
@@ -295,11 +431,11 @@ static void test_inputs(App *a)
     CHECK(a->history.at == 1);
     key(a, SDLK_R, 0); key(a, SDLK_C, 0); key(a, SDLK_EQUALS, 0);
     Quilt q = a->history.steps[a->history.at];
-    CHECK(q.rows == 6 && q.cols == 6 && q.inches == 5);
+    CHECK(q.rows == 6 && q.cols == 6 && q.size == 5 * INCH);
     key(a, SDLK_R, SDL_KMOD_SHIFT); key(a, SDLK_C, SDL_KMOD_SHIFT); key(a, SDLK_MINUS, 0);
     key(a, SDLK_UNKNOWN, 0); key(a, SDLK_C, SDL_KMOD_CTRL);
     q = a->history.steps[a->history.at];
-    CHECK(q.rows == 5 && q.cols == 5 && q.inches == 4);
+    CHECK(q.rows == 5 && q.cols == 5 && q.size == 4 * INCH);
     button(a, SWATCH_B);
     SDL_FRect b = quilt_box(&q, design_mat);
     click(a, b.x + b.w / 2, b.y + b.h / 2);
@@ -316,9 +452,9 @@ static void test_inputs(App *a)
     CHECK(sheet && strstr(sheet, "25 squares at 4.5 x 4.5 in"));
     SDL_free(sheet);
     button(a, SHARE);
-    CHECK(strstr(a->status, "copied"));
+    CHECK(a->status == SHEET_COPIED);
     key(a, SDLK_TAB, 0); CHECK(a->screen == DESIGN);
-    key(a, SDLK_S, 0); CHECK(strstr(a->status, "Saved"));
+    key(a, SDLK_S, 0); CHECK(a->status == SAVED);
     SDL_Event e = {0}; e.type = SDL_EVENT_WINDOW_EXPOSED;
     CHECK(SDL_AppEvent(a, &e) == SDL_APP_CONTINUE && a->dirty);
     e.type = SDL_EVENT_MOUSE_MOTION; CHECK(SDL_AppEvent(a, &e) == SDL_APP_CONTINUE);
@@ -366,9 +502,9 @@ static void test_library_ui(App *a)
     button(a, PREV_PAGE); CHECK(a->chosen == 1);
     key(a, SDLK_PAGEDOWN, 0); CHECK(a->chosen == 6);
     button(a, NEXT_PAGE); CHECK(a->chosen == 12);
-    button(a, NEXT_PAGE); CHECK(a->chosen == 12);
+    button(a, NEXT_PAGE); CHECK(a->chosen == 18);
     CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
-    key(a, SDLK_PAGEUP, 0); CHECK(a->chosen == 6);
+    key(a, SDLK_PAGEUP, 0); CHECK(a->chosen == 12);
     key(a, SDLK_1, 0); CHECK(a->filter == ALL_PATTERNS && a->chosen == 0);
     key(a, SDLK_2, 0); CHECK(a->filter == TRADITIONAL && a->chosen == 0);
     key(a, SDLK_3, 0); CHECK(a->filter == MODERN && a->chosen == 0);
@@ -386,7 +522,7 @@ static void test_library_ui(App *a)
     CHECK(a->screen == DESIGN && a->history.at == before + 1);
     Quilt q = a->history.steps[a->history.at];
     CHECK(q.pattern == design_named("Pinwheel") && q.setting == BORDER);
-    CHECK(q.rows == original.rows && q.cols == original.cols && q.inches == original.inches);
+    CHECK(q.rows == original.rows && q.cols == original.cols && q.size == original.size);
     CHECK(load_quilt(a->path, &q) == STORE_OK && q.cell[0][0].fabric[0] == 3);
     SDL_FRect b = quilt_box(&q, design_mat);
     float side = b.w / q.cols;
@@ -402,39 +538,108 @@ static void test_library_ui(App *a)
     CHECK(text && strstr(text, "Pinwheel / Border") && strstr(text, "Triangle, 2.854 x 2.854"));
     SDL_free(text);
     button(a, UNDO); button(a, UNDO);
-    CHECK(a->history.at == before && memcmp(&a->history.steps[before], &original, sizeof original) == 0);
+    CHECK(a->history.at == before && quilt_equal(&a->history.steps[before], &original));
     button(a, REDO);
     CHECK(a->history.steps[a->history.at].pattern == design_named("Pinwheel"));
     button(a, UNDO);
     button(a, DESIGN);
 }
 
+static void test_localized_ui(App *a, const char *path)
+{
+    SDL_free(a->settings_path);
+    a->settings_path = SDL_strdup(path);
+    Quilt original = a->history.steps[0];
+    key(a, SDLK_L, 0);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE && a->language_menu);
+    key(a, SDLK_2, SDL_KMOD_CTRL); CHECK(a->language_menu);
+    key(a, SDLK_2, 0); CHECK(a->prefs.language == GERMAN && !a->language_menu);
+    button(a, LANGUAGE_MENU); button(a, LANGUAGE_PL);
+    CHECK(a->prefs.language == POLISH && load_preferences(path).language == POLISH);
+    button(a, LANGUAGE_MENU); click(a, 100, 110); CHECK(!a->language_menu);
+    button(a, LANGUAGE_MENU); key(a, SDLK_ESCAPE, 0); CHECK(!a->language_menu);
+    CHECK(quilt_equal(&original, &a->history.steps[a->history.at]) && a->history.at == 0);
+    key(a, SDLK_U, 0); CHECK(a->prefs.unit == CENTIMETRES);
+    key(a, SDLK_M, 0); CHECK(a->editor == EDIT_SIZE_VALUE && a->replace_input);
+    key(a, SDLK_BACKSPACE, 0);
+    type(a, "no"); key(a, SDLK_RETURN, 0);
+    CHECK(a->invalid && a->editor == EDIT_SIZE_VALUE);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    type(a, "10");
+    key(a, SDLK_RETURN, 0);
+    CHECK(!a->editor && a->history.steps[a->history.at].size == 10 * CM);
+    button(a, SET_SIZE); button(a, EDIT_CANCEL); CHECK(!a->editor);
+    button(a, SET_SEAMS); CHECK(a->history.steps[a->history.at].seams == BRICK_ROWS);
+    key(a, SDLK_P, 0);
+    choose_box(a, pattern_card(2)); button(a, BRUSH);
+    CHECK(a->brush == design_named("Log Cabin") && a->screen == DESIGN);
+    button(a, ROTATE_BLOCK);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE && a->turn == 2);
+    SDL_FRect b = quilt_box(&a->history.steps[a->history.at], design_mat);
+    float side = b.w / 5;
+    click(a, b.x + side * 1.2f, b.y + side * 1.2f);
+    CHECK(a->row == 1 && a->col == 0 && a->history.steps[a->history.at].cell[1][0].turn == 2);
+    key(a, SDLK_ESCAPE, 0); CHECK(!a->brush);
+    key(a, SDLK_F, 0);
+    key(a, SDLK_RIGHT, 0); key(a, SDLK_LEFT, 0); button(a, NEXT_PAGE);
+    CHECK(a->palette_page == 1 && a->screen == COLORS);
+    choose_box(a, palette_card(3));
+    uint32_t palette[FABRICS];
+    palette_colors(13, palette);
+    CHECK(memcmp(a->history.steps[a->history.at].color, palette, sizeof palette) == 0);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    key(a, SDLK_3, 0);
+    CHECK(a->editor == EDIT_FABRIC && a->fabric == 2);
+    choose_box(a, slider_box(1));
+    CHECK((parse_color(a->input) & 0xff00) == 0x8000);
+    CHECK(SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    key(a, SDLK_A, SDL_KMOD_CTRL);
+    type(a, "1020AB"); button(a, EDIT_APPLY);
+    CHECK(a->history.steps[a->history.at].color[2] == 0x1020ab);
+    button(a, ORIGINAL_COLORS);
+    CHECK(a->history.steps[a->history.at].color[2] == original_palette[2]);
+    button(a, UNDO);
+    CHECK(a->history.steps[a->history.at].color[2] == 0x1020ab);
+    button(a, SHEET); button(a, SHARE);
+    CHECK(a->status == SHEET_COPIED && SDL_AppIterate(a) == SDL_APP_CONTINUE);
+    char *text = SDL_GetClipboardText();
+    CHECK(text && strstr(text, "PLAN CIĘCIA") && strstr(text, "0,635 cm") && strstr(text, "#1020AB"));
+    SDL_free(text);
+    SDL_Event pdf = {.type = SDL_EVENT_USER};
+    pdf.user.code = PDF_EXPORTED;
+    CHECK(SDL_AppEvent(a, &pdf) == SDL_APP_CONTINUE && a->status == PDF_EXPORTED);
+    CHECK(SDL_RemovePath(path));
+}
+
 int main(void)
 {
     SDL_SetMainReady();
-    test_quilt(); test_history(); test_format(); test_catalog(); test_shaped_plan();
+    test_quilt(); test_history(); test_format(); test_catalog(); test_shaped_plan(); test_custom_quilt();
     char *dir = SDL_GetPrefPath("PatchworkTests", "Unit");
     CHECK(dir);
-    char *path, *bad;
+    char *path, *bad, *prefs;
     CHECK(SDL_asprintf(&path, "%sunit-%llu.pw", dir, (unsigned long long)SDL_GetPerformanceCounter()) > 0);
     CHECK(SDL_asprintf(&bad, "%s/missing/plan", path) > 0);
+    CHECK(SDL_asprintf(&prefs, "%s.settings", path) > 0);
+    test_preferences(prefs);
     test_storage(path);
     App *a = start(path);
     CHECK(strcmp(SDL_GetRendererName(a->renderer), "software") == 0);
     test_inputs(a); test_drawing(a); test_library_ui(a);
+    test_pdf();
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     a = start(path); CHECK(a->history.steps[0].cell[2][2].fabric[0] == 1);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     CHECK(SDL_SaveFile(path, "broken", 6));
     a = start(path); key(a, SDLK_SPACE, 0);
-    CHECK(a->protected_plan && strstr(a->status, "preserved"));
+    CHECK(a->protected_plan && a->status == PROTECTED_PLAN);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     size_t size;
     char *original = SDL_LoadFile(path, &size);
     CHECK(original && size == 6 && memcmp(original, "broken", 6) == 0);
     SDL_free(original);
     a = start(bad); key(a, SDLK_SPACE, 0);
-    CHECK(strstr(a->status, "Saving failed"));
+    CHECK(a->status == SAVE_FAILED);
     SDL_AppQuit(a, SDL_APP_SUCCESS);
     void *state = NULL;
     char *args[] = {"patchwork", "--unknown", NULL};
@@ -444,7 +649,11 @@ int main(void)
     SDL_AppQuit(state, SDL_APP_SUCCESS);
     SDL_AppQuit(NULL, SDL_APP_FAILURE);
     CHECK(SDL_RemovePath(path));
-    SDL_free(bad); SDL_free(path); SDL_free(dir);
+    a = start(path);
+    test_localized_ui(a, prefs);
+    SDL_AppQuit(a, SDL_APP_SUCCESS);
+    CHECK(SDL_RemovePath(path));
+    SDL_free(prefs); SDL_free(bad); SDL_free(path); SDL_free(dir);
     SDL_Quit();
     puts("Quilt, history, format, storage, input and rendering checks passed.");
     return 0;

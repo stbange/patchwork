@@ -10,14 +10,40 @@ canvas {display:block;width:min(100vw,150vh);height:auto;max-height:100vh;aspect
 #current-view {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 </style></head><body>
 <p id="loading" role="status">Opening the design wall…</p>
-<canvas id="canvas" width="1080" height="720" tabindex="0" aria-label="Patchwork planner. Press P for patterns. In the library, press 1 to 3 to filter, arrows for designs, brackets for settings, and Enter to apply. On the design wall, press 1 to 5 for fabric, arrows to move, brackets for pieces, and Space to place a piece. Press Tab for the cutting sheet."></canvas>
+<canvas id="canvas" width="1080" height="720" tabindex="0" aria-label="Patchwork"></canvas>
 <p id="current-view" role="status"></p>
 <script>
-var Module = {
-  canvas: document.getElementById('canvas'),
-  onRuntimeInitialized() { document.getElementById('loading').remove(); this.canvas.focus(); },
-  onAbort() { document.body.textContent = 'The quilt planner could not start. Reload this page to try again.'; }
-};
+var Module = (() => {
+  const messages = {
+    en: ['Quilt planner', 'Opening the design wall…', 'The quilt planner could not start. Reload the page to try again.'],
+    de: ['Quiltplaner', 'Entwurfswand wird geöffnet…', 'Der Quiltplaner konnte nicht starten. Lade die Seite erneut.'],
+    pl: ['Planer kołdry', 'Otwieranie planszy…', 'Nie udało się uruchomić planera. Odśwież stronę i spróbuj ponownie.']
+  };
+  const supported = tag => /^(en|de|pl)$/.test(tag);
+  let prefs;
+  try { prefs = localStorage.getItem('patchwork.settings'); } catch (_) {}
+  if (!/^(en|de|pl) (in|cm)$/.test(prefs)) {
+    const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+    const lang = languages.map(tag => tag?.toLowerCase().split(/[-_]/)[0]).find(supported) || 'en';
+    prefs = lang + (lang === 'en' ? ' in' : ' cm');
+  }
+  const loading = document.getElementById('loading');
+  const canvas = document.getElementById('canvas');
+  function language(tag) {
+    if (document.documentElement.lang !== tag) document.documentElement.lang = tag;
+    const title = 'Patchwork · ' + messages[tag][0];
+    if (document.title !== title) document.title = title;
+    if (loading.textContent !== messages[tag][1]) loading.textContent = messages[tag][1];
+  }
+  language(prefs.slice(0, 2));
+  return {
+    canvas,
+    patchworkSettings: prefs,
+    patchworkLanguage: language,
+    onRuntimeInitialized() { loading.remove(); canvas.focus(); },
+    onAbort() { document.body.textContent = messages[document.documentElement.lang][2]; }
+  };
+})();
 </script>
 {{{ SCRIPT }}}
 </body></html>

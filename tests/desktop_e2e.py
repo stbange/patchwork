@@ -79,15 +79,25 @@ def run(executable):
         log = Path(temp, "startup.log")
         env = os.environ.copy()
         env.pop("SDL_RENDER_DRIVER", None)
-        if sys.platform != "win32":
+        env["SDL_PREFERRED_LOCALES"] = "en_US"
+        unix = sys.platform != "win32"
+        pdf = Path(temp, "topper.pdf")
+        if unix:
             env["SDL_VIDEO_DRIVER"] = "x11"
-        for visit in range(3):
+            env["XDG_DATA_HOME"] = temp
+            env["SDL_FILE_DIALOG_DRIVER"] = "zenity"
+            env["PATCHWORK_TEST_PDF"] = str(pdf)
+            env["PATH"] = temp + os.pathsep + env["PATH"]
+            dialog = Path(temp, "zenity")
+            dialog.write_text('#!/bin/sh\nif [ "$1" = "--version" ]; then echo 4.0; else printenv PATCHWORK_TEST_PDF; fi\n')
+            dialog.chmod(0o700)
+        for visit in range(4 if unix else 3):
             with log.open("wb") as output:
                 process = subprocess.Popen([executable, "--project", str(plan)], env=env,
                                            stdout=output, stderr=subprocess.STDOUT)
             try:
                 def ready():
-                    assert process.poll() is None, log.read_text(errors="replace")
+                    assert process.poll() is None, f"Visit {visit}: {log.read_text(errors='replace')}"
                     return window_for(process.pid)
                 window = until(ready, "the design wall")
                 if visit == 0:
@@ -105,10 +115,12 @@ def run(executable):
                     click(window, 885, 583)
                     def copied_sheet():
                         text = clipboard()
-                        expected = "30 squares at 4.5 x 4.5 in" if visit == 1 else "Flying Geese / Columns"
+                        expected = {
+                            1: "30 squares at 4.5 x 4.5 in", 2: "Flying Geese / Columns", 3: "Fliegende Gänse / Spalten"
+                        }[visit]
                         return text if expected in text else None
                     text = until(copied_sheet, "the copied cutting sheet")
-                    assert "24 x 20 in" in text
+                    assert ("24 × 20 Zoll" if visit == 3 else "24 x 20 in") in text
                     if visit == 1:
                         assert "D B B B D A" in text and "Madder rose     5" in text
                         click(window, 715, 36)  # Patterns
@@ -117,13 +129,24 @@ def run(executable):
                         click(window, 345, 285)  # Flying Geese
                         click(window, 790, 540)  # Columns
                         assert plan.read_text().startswith("PATCHWORK 1")
-                        click(window, 875, 636)  # Apply
+                        click(window, 790, 636)  # Fill quilt
                         until(lambda: "5 6 4 08 4\n2DAABAA " in plan.read_text(), "the rotated geese")
                         click(window, 189, 235)  # Paint just the first goose
                         until(lambda: "5 6 4 08 4\n2BAABAA " in plan.read_text(), "the painted goose")
-                    else:
+                    elif visit == 2:
                         assert "Cut 105 pieces for 30 blocks" in text
                         assert "Triangle" in text and "[R90 B2" in text and "[- A1]" in text
+                        if unix:
+                            click(window, 880, 634)
+                            until(pdf.is_file, "the desktop PDF")
+                            data = pdf.read_bytes()
+                            assert data.startswith(b"%PDF-1.4\n") and b"/ToUnicode" in data
+                            click(window, 251, 36)  # Language
+                            click(window, 251, 112)  # Deutsch
+                            settings = Path(temp, "Patchwork", "Planner", "settings")
+                            until(lambda: settings.is_file() and settings.read_text() == "de in", "German preference")
+                    else:
+                        assert "ZUSCHNITTPLAN" in text and "1/4 Zoll" in text and "Dreieck" in text
                 close(window, process)
                 startup = log.read_text(errors="replace")
                 assert "Patchwork renderer: opengl" in startup.splitlines(), startup
@@ -131,7 +154,8 @@ def run(executable):
                 if process.poll() is None:
                     process.kill()
                     process.wait()
-    print("Desktop journey passed: squares, pattern selection, rotated triangle paint, reopen and copy.")
+    extra = ", native PDF save and German preference" if unix else ""
+    print(f"Desktop journey passed: square and pieced plans, reopen and copy{extra}.")
 
 
 if __name__ == "__main__":
