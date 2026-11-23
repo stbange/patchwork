@@ -22,7 +22,7 @@ The planner SHALL offer editable blocks made of individual fabric pieces, five s
 
 #### Scenario: Grow a quilt
 
-- **WHEN** a quilter adds a row
+- **WHEN** a quilter adds a row to a block quilt
 - **THEN** the previous rows retain their pieces and the new row starts with fabric A squares
 
 ### Requirement: Choose a fabric palette
@@ -40,6 +40,22 @@ The planner SHALL offer approximately 100 named palettes and let a quilter assig
 - **WHEN** the quilter adds fabric F, enters a teal RGB value and paints a piece with it
 - **THEN** the map, fabric quantities and reopened quilt identify that piece as F
 - **AND** choosing a named five-color combination retains F and its pieces
+
+### Requirement: Take a cutting sheet to the sewing table
+
+The planner SHALL provide finished top dimensions, piece quantities by fabric, placement guidance and cut dimensions. Joined pieces SHALL include a quarter-inch seam allowance on every stitched edge. Raw-edge appliqué SHALL be cut to the finished outline and identified separately. Block layouts SHALL have a row-by-row placement map. The sheet SHALL be available as plain text.
+
+#### Scenario: Cut a five-by-five topper
+
+- **WHEN** the quilter opens the sheet for five rows and five columns of four-inch finished squares
+- **THEN** the top measures 20 by 20 inches and the quantities total 25 squares
+- **AND** each square is cut at 4.5 by 4.5 inches
+
+#### Scenario: Cut a pieced block
+
+- **WHEN** the quilter exports the cutting sheet for a design with shaped pieces
+- **THEN** each used template has quantities by fabric and dimensions including its seam allowance
+- **AND** the placement map identifies the templates, fabrics and block turns
 
 ### Requirement: Resume a local plan
 

@@ -456,7 +456,7 @@ static void test_scraps_and_layers(void)
     set_whole_design(&q, APPLIQUE, VINE);
     char sheet[SHEET_BYTES], data[PLAN_BYTES];
     CHECK(cutting_sheet(&q, english, sheet) && strstr(sheet, "Flowering Vine") && strstr(sheet, "Flying Geese"));
-    CHECK(strstr(sheet, "Stem") && strstr(sheet, "Branch") && strstr(sheet, "Raw-edge") &&
+    CHECK(strstr(sheet, "Stem") && strstr(sheet, "Branch") && strstr(sheet, "raw-edge") &&
           strstr(sheet, "Z  #105019"));
     set_whole_design(&q, FOUNDATION, CLAMSHELL);
     int id = next_whole(&q, FOUNDATION, -1, 1);

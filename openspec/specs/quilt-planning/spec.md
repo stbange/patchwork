@@ -8,7 +8,7 @@ Help a home quilter explore traditional and modern layouts, arrange individual f
 
 ### Requirement: Arrange a quilt top
 
-The planner SHALL offer editable blocks made of individual fabric pieces, five labeled fabrics, independent row and column counts from 3 to 9, and a finished base block side from 5 to 20.32 centimetres. It SHALL allow square patches as well as triangles, rectangular strips, diamonds and other straight-edged pieces. Painting, resizing and applying a pattern SHALL work with pointer and keyboard input.
+The planner SHALL offer editable blocks made of individual fabric pieces, five starter fabrics and up to 26 labeled fabrics, independent row and column counts from 3 to 9, and a finished base block side from 5 to 20.32 centimetres. It SHALL allow square patches as well as triangles, rectangular strips, diamonds and other straight-edged pieces. Painting, resizing and applying a pattern SHALL work with pointer and keyboard input.
 
 #### Scenario: Recolor one patch
 
@@ -28,12 +28,12 @@ The planner SHALL offer editable blocks made of individual fabric pieces, five l
 
 #### Scenario: Grow a quilt
 
-- **WHEN** a quilter adds a row
+- **WHEN** a quilter adds a row to a block quilt
 - **THEN** the previous rows retain their pieces and the new row starts with fabric A squares
 
 ### Requirement: Take a cutting sheet to the sewing table
 
-The planner SHALL provide finished top dimensions, piece quantities by fabric, a row-by-row placement map and cut dimensions that include a quarter-inch seam on every edge. The sheet SHALL be available as plain text.
+The planner SHALL provide finished top dimensions, piece quantities by fabric, placement guidance and cut dimensions. Joined pieces SHALL include a quarter-inch seam allowance on every stitched edge. Raw-edge appliqué SHALL be cut to the finished outline and identified separately. Block layouts SHALL have a row-by-row placement map. The sheet SHALL be available as plain text.
 
 #### Scenario: Cut a five-by-five topper
 
@@ -49,7 +49,7 @@ The planner SHALL provide finished top dimensions, piece quantities by fabric, a
 
 ### Requirement: Resume a local plan
 
-The planner SHALL persist completed edits on the current device, validate saved data before loading it, and show a visible status if storage fails. It SHALL load version 1 square plans, version 2 patterned plans and version 3 plans with mixed patterns, custom colors and physical block dimensions.
+The planner SHALL persist completed edits on the current device, validate saved data before loading it, and show a visible status if storage fails. It SHALL load version 1 square plans, version 2 patterned plans, version 3 plans with mixed patterns, custom colors and physical block dimensions, and version 4 plans with extra fabrics and whole-quilt designs.
 
 #### Scenario: Return to yesterday's quilt
 
@@ -139,13 +139,19 @@ The planner SHALL accept the finished block edge in inches or centimetres and SH
 
 ### Requirement: Choose a fabric palette
 
-The planner SHALL offer approximately 100 named palettes and let a quilter assign any sRGB color to any of the five fabric slots. Color changes SHALL be undoable and saved with the quilt.
+The planner SHALL offer approximately 100 named palettes and let a quilter assign any sRGB color to each fabric in a basket of up to 26 slots. Color changes SHALL be undoable and saved with the quilt.
 
 #### Scenario: Make a palette your own
 
 - **WHEN** the quilter applies a palette and enters a custom hex color for fabric C
 - **THEN** every piece using C changes to the chosen color
 - **AND** reopening the quilt restores the palette and the custom color
+
+#### Scenario: Add a teal scrap
+
+- **WHEN** the quilter adds fabric F, enters a teal RGB value and paints a piece with it
+- **THEN** the map, fabric quantities and reopened quilt identify that piece as F
+- **AND** choosing a named five-color combination retains F and its pieces
 
 ### Requirement: Export a PDF cutting sheet
 
@@ -156,3 +162,25 @@ The planner SHALL offer a PDF that includes the colored layout diagram and the c
 - **WHEN** the quilter downloads the PDF with Polish and centimetres selected
 - **THEN** the PDF contains the quilt map and Polish instructions, including dimensions in centimetres
 - **AND** Polish letters remain legible in a standard PDF viewer
+
+### Requirement: Piece across the whole quilt
+
+The planner SHALL preview and apply hexagon, tumbling-block and clamshell tessellations with individual editable pieces, joined edges and fitted perimeter pieces. It SHALL support raw-edge botanical, koi and woven appliqué on wholecloth or an existing pieced top. Pointer selection SHALL use the visible piece at an overlap. A ribbon that alternates over and under SHALL remain a single fabric piece.
+
+#### Scenario: Piece a curved clamshell top
+
+- **WHEN** a quilter fills a top with clamshells and paints one shell
+- **THEN** the curved edges nest with the neighboring rows and that entire shell takes the new fabric
+- **AND** the cutting sheet counts the shell once
+
+#### Scenario: Put a vine on a mixed quilt
+
+- **WHEN** the quilter adds Flowering Vine over two different block motifs
+- **THEN** the stems run across block seams and the leaves and flowers can be recolored independently
+- **AND** removing the appliqué reveals the same block layout
+
+#### Scenario: Trace an actual-size piece
+
+- **WHEN** the quilter exports a PDF of a quilt-wide design
+- **THEN** the map and material list include the actual foundation and appliqué pieces
+- **AND** labeled A4 tiles provide full-size stitching and cutting outlines for piecing and raw-edge cutting outlines for appliqué, with a scale check

@@ -114,4 +114,4 @@ python tests/web_e2e.py build-web/app
 npx --yes @fission-ai/openspec@2.1.1 validate --all --strict
 ```
 
-One C quilt model drives the design wall, cutting sheet and pattern library. [Quilt-planning specification](openspec/specs/quilt-planning/spec.md) · [Localization specification](openspec/specs/planner-localization/spec.md) · [Expanded planner change](openspec/changes/archive/2026-11-23-localize-and-expand-planner)
+One C quilt model drives the design wall, cutting sheet and pattern library. [Quilt-planning specification](openspec/specs/quilt-planning/spec.md) · [Localization specification](openspec/specs/planner-localization/spec.md) · [Expanded planner change](openspec/changes/archive/2026-11-23-localize-and-expand-planner) · [Whole-quilt design](openspec/changes/archive/2026-11-23-design-across-seams/design.md)

@@ -11,4 +11,4 @@
 ## 3. Verification
 
 - [x] 3.1 Check geometry, coverage, persistence and export in the unit suite.
-- [ ] 3.2 Exercise native and browser journeys and verify the Pages release.
+- [x] 3.2 Exercise native and browser journeys and verify the Pages release.

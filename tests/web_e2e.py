@@ -169,7 +169,7 @@ def run(directory, check_file, renderer):
                 path = Path(traced.value.path())
                 text = subprocess.check_output(["pdftotext", "-layout", str(path), "-"]).decode()
                 assert "Clamshells / tile 1,1" in text and "Ribbon Lattice / tile 1,1" in text
-                assert "Scale check 1 in" in text and "Dashed: cutting line" in text
+                assert "Scale check 1 in" in text and "Cut on the dashed line." in text
                 assert b"/PrintScaling /None" in path.read_bytes()
 
                 page.evaluate("localStorage.setItem('patchwork.plan.v1', 'broken')")
