@@ -1,4 +1,4 @@
-#include "quilt.h"
+#include "whole.h"
 
 enum { A, B, C, D, E };
 #define TRI(x1,y1,x2,y2,x3,y3,f) {3, f, {{x1,y1}, {x2,y2}, {x3,y3}}}
@@ -335,6 +335,7 @@ static int setting_turn(const Quilt *q, int r, int c)
 bool arrange(Quilt *q, int id, int setting)
 {
     if (id < 1 || id > PATTERN_COUNT || setting < 0 || setting >= SETTING_COUNT) return false;
+    set_whole_design(q, FOUNDATION, BLOCK_TOP);
     q->pattern = (uint8_t)id;
     q->setting = (uint8_t)setting;
     for (int r = 0; r < q->rows; ++r)
@@ -369,6 +370,7 @@ bool mixed_quilt(const Quilt *q)
 
 const char *quilt_name(const Quilt *q, Language language)
 {
+    if (q->applique || q->foundation) return tr(language, whole_name[q->applique ? q->applique : q->foundation]);
     return mixed_quilt(q) ? tr(language, MIXED_NAME) : patterns[q->pattern].name[language];
 }
 

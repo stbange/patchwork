@@ -91,7 +91,8 @@ def run(executable):
             dialog = Path(temp, "zenity")
             dialog.write_text('#!/bin/sh\nif [ "$1" = "--version" ]; then echo 4.0; else printenv PATCHWORK_TEST_PDF; fi\n')
             dialog.chmod(0o700)
-        for visit in range(4 if unix else 3):
+        final_visit = 4 if unix else 3
+        for visit in range(final_visit + 1):
             with log.open("wb") as output:
                 process = subprocess.Popen([executable, "--project", str(plan)], env=env,
                                            stdout=output, stderr=subprocess.STDOUT)
@@ -110,6 +111,16 @@ def run(executable):
                     until(lambda: "DBBBD" in plan.read_text(), "redo")
                     click(window, 1020, 492)
                     until(lambda: "5 6 4" in plan.read_text(), "six columns")
+                elif visit == final_visit:
+                    click(window, 585, 36)
+                    click(window, 885, 583)
+                    name = "Bändergeflecht" if unix else "Ribbon Lattice"
+                    def woven_sheet():
+                        text = clipboard()
+                        return text if name in text else None
+                    final_sheet = until(woven_sheet, "the woven cutting sheet")
+                    assert "F  #679E9B         1" in final_sheet
+                    assert ("Muschelschuppen" if unix else "Clamshells") in final_sheet
                 else:
                     click(window, 585, 36)
                     click(window, 885, 583)
@@ -147,6 +158,22 @@ def run(executable):
                             until(lambda: settings.is_file() and settings.read_text() == "de in", "German preference")
                     else:
                         assert "ZUSCHNITTPLAN" in text and "1/4 Zoll" in text and "Dreieck" in text
+                if visit == final_visit - 1:
+                    click(window, 410, 32)    # Design wall
+                    click(window, 974, 136)   # Add the sixth fabric
+                    click(window, 691, 504)   # Apply the proposed teal
+                    until(lambda: "06 0 0\n" in plan.read_text(), "six fabrics")
+                    click(window, 715, 36)
+                    click(window, 465, 169)   # Whole quilt
+                    click(window, 549, 280)   # Clamshells
+                    click(window, 782, 634)   # Use this top
+                    until(lambda: "06 4 0\n" in plan.read_text(), "curved piecing")
+                    click(window, 715, 36)
+                    click(window, 548, 481)   # Ribbon Lattice
+                    click(window, 782, 634)   # Add to my quilt
+                    until(lambda: "06 4 7\n" in plan.read_text(), "woven appliqué over the shells")
+                    click(window, 168, 235)   # An upper ribbon at the first crossing
+                    until(lambda: plan.read_text().splitlines()[-1].startswith("F"), "the painted ribbon")
                 close(window, process)
                 startup = log.read_text(errors="replace")
                 assert "Patchwork renderer: opengl" in startup.splitlines(), startup
@@ -155,7 +182,7 @@ def run(executable):
                     process.kill()
                     process.wait()
     extra = ", native PDF save and German preference" if unix else ""
-    print(f"Desktop journey passed: square and pieced plans, reopen and copy{extra}.")
+    print(f"Desktop journey passed: square and woven quilts, sixth fabric, reopen and copy{extra}.")
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ file(WRITE "${stb_dir}/truetype.c" "#define STB_TRUETYPE_IMPLEMENTATION
 #include \"stb_truetype.h\"
 ")
 add_library(truetype STATIC "${stb_dir}/truetype.c")
-add_library(workroom STATIC src/i18n.c src/quilt.c src/patterns.c src/palettes.c src/cutting.c src/pdf.c src/storage.c src/draw.c src/app.c)
+add_library(workroom STATIC src/i18n.c src/whole.c src/quilt.c src/patterns.c src/palettes.c src/cutting.c src/pdf.c src/storage.c src/draw.c src/app.c)
 target_include_directories(workroom PUBLIC src PRIVATE "${stb_dir}")
 target_link_libraries(workroom PUBLIC SDL3::SDL3 PRIVATE truetype)
 if(MSVC)
@@ -56,7 +56,7 @@ if(EMSCRIPTEN)
     "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/web/storage.js"
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
     "-sSINGLE_FILE=1" "--embed-file" "${CMAKE_CURRENT_SOURCE_DIR}/assets@/assets"
-    "-sALLOW_MEMORY_GROWTH=1" "-sENVIRONMENT=web" "-sEXIT_RUNTIME=0")
+    "-sSTACK_SIZE=1048576" "-sALLOW_MEMORY_GROWTH=1" "-sENVIRONMENT=web" "-sEXIT_RUNTIME=0")
   set_property(TARGET patchwork APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/DM-Sans.ttf" "${CMAKE_CURRENT_SOURCE_DIR}/assets/InstrumentSerif-Regular.ttf")
   set_property(TARGET patchwork APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html" "${CMAKE_CURRENT_SOURCE_DIR}/web/storage.js")

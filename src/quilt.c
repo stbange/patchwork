@@ -1,10 +1,10 @@
-#include "quilt.h"
+#include "whole.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-const uint32_t original_palette[FABRICS] = {0xeee0bf, 0xb86761, 0x8a9b78, 0x4c6171, 0xd5ab62};
-const char *const fabric_name[FABRICS][LANGUAGE_COUNT] = {
+const uint32_t original_palette[STARTER_FABRICS] = {0xeee0bf, 0xb86761, 0x8a9b78, 0x4c6171, 0xd5ab62};
+const char *const fabric_name[STARTER_FABRICS][LANGUAGE_COUNT] = {
     {"Oat linen", "Haferbeiges Leinen", "Lniany beż"},
     {"Madder rose", "Krapp-Rosa", "Róż marzanny"},
     {"Sage sprig", "Salbeizweig", "Gałązka szałwii"},
@@ -17,18 +17,25 @@ Quilt garden_path(void)
     static const uint8_t sample[5][5] = {
         {2, 0, 3, 0, 2}, {0, 3, 1, 3, 0}, {3, 1, 4, 1, 3}, {0, 3, 1, 3, 0}, {2, 0, 3, 0, 2}
     };
-    Quilt q = {.rows = 5, .cols = 5, .size = 4 * INCH};
-    memcpy(q.color, original_palette, sizeof q.color);
+    Quilt q = {.rows = 5, .cols = 5, .size = 4 * INCH, .fabrics = STARTER_FABRICS};
+    memcpy(q.color, original_palette, sizeof original_palette);
     for (int r = 0; r < q.rows; ++r)
         for (int c = 0; c < q.cols; ++c)
             q.cell[r][c].fabric[0] = sample[r][c];
     return q;
 }
 
+bool add_fabric(Quilt *q, uint32_t color)
+{
+    if (q->fabrics >= MAX_FABRICS || color > 0xffffff) return false;
+    q->color[q->fabrics++] = color;
+    return true;
+}
+
 bool paint(Quilt *q, int row, int col, int patch, int fabric)
 {
     if (row < 0 || row >= q->rows || col < 0 || col >= q->cols ||
-        fabric < 0 || fabric >= FABRICS)
+        fabric < 0 || fabric >= q->fabrics)
         return false;
     Block *block = &q->cell[row][col];
     if (patch < 0 || patch >= block_pattern(block)->count || block->fabric[patch] == fabric)
@@ -43,9 +50,20 @@ bool resize_quilt(Quilt *q, int rows, int cols, int size)
         size < MIN_SIZE || size > MAX_SIZE ||
         (rows == q->rows && cols == q->cols && size == q->size))
         return false;
-    Quilt next = {.rows = (uint8_t)rows, .cols = (uint8_t)cols, .size = (uint16_t)size,
-                  .pattern = q->pattern, .setting = q->setting, .seams = q->seams};
-    memcpy(next.color, q->size ? q->color : original_palette, sizeof next.color);
+    Quilt next = {.rows = (uint8_t)rows,
+                  .cols = (uint8_t)cols,
+                  .size = (uint16_t)size,
+                  .pattern = q->pattern,
+                  .setting = q->setting,
+                  .seams = q->seams,
+                  .foundation = q->foundation,
+                  .applique = q->applique,
+                  .fabrics = q->size ? q->fabrics : STARTER_FABRICS};
+    if (q->size)
+        memcpy(next.color, q->color, sizeof next.color);
+    else
+        memcpy(next.color, original_palette, sizeof original_palette);
+    memcpy(next.dye, q->dye, sizeof next.dye);
     size_t overlap = (size_t)(cols < q->cols ? cols : q->cols) * sizeof(Block);
     for (int r = 0; r < rows && r < q->rows; ++r)
         memcpy(next.cell[r], q->cell[r], overlap);
@@ -57,7 +75,8 @@ bool quilt_equal(const Quilt *a, const Quilt *b)
 {
     return a->size == b->size && a->rows == b->rows && a->cols == b->cols &&
            a->pattern == b->pattern && a->setting == b->setting && a->seams == b->seams &&
-           memcmp(a->color, b->color, sizeof a->color) == 0 && memcmp(a->cell, b->cell, sizeof a->cell) == 0;
+           a->fabrics == b->fabrics && a->foundation == b->foundation && a->applique == b->applique &&
+           memcmp(a->dye, b->dye, sizeof a->dye) == 0 && memcmp(a->color, b->color, sizeof a->color) == 0 && memcmp(a->cell, b->cell, sizeof a->cell) == 0;
 }
 
 bool record(History *h, const Quilt *q)
@@ -81,9 +100,17 @@ bool travel(History *h, int direction)
     return false;
 }
 
-void count_pieces(const Quilt *q, int counts[FABRICS])
+static void count_shape(const Outline *piece, void *data)
 {
-    memset(counts, 0, FABRICS * sizeof *counts);
+    int *counts = data;
+    if (!piece->bridge) ++counts[piece->fabric];
+}
+
+void count_pieces(const Quilt *q, int counts[MAX_FABRICS])
+{
+    memset(counts, 0, MAX_FABRICS * sizeof *counts);
+    visit_layer(q, APPLIQUE, count_shape, counts);
+    if (q->foundation) { visit_layer(q, FOUNDATION, count_shape, counts); return; }
     for (int r = 0; r < q->rows; ++r)
         for (int c = 0; c < q->cols; ++c) {
             const Block *block = &q->cell[r][c];
@@ -152,19 +179,22 @@ void dimensions(char out[2 * NUMBER_BYTES + 16], Preferences prefs,
 }
 
 #define MAGIC "PATCHWORK "
-enum { HEADER_BYTES = sizeof MAGIC + 1, V3_FIELDS = 17, PALETTE_BYTES = FABRICS * 7 };
+enum { HEADER_BYTES = sizeof MAGIC + 1, V3_FIELDS = 17, V4_FIELDS = 24 };
 _Static_assert(PATTERN_COUNT <= 99 && SETTING_COUNT <= 10 && SEAM_COUNT <= 10, "Saved field widths");
 
 size_t encode_plan(const Quilt *q, char out[PLAN_BYTES])
 {
     bool expanded = q->seams != GRID_SEAMS || q->size % INCH != 0 ||
-                    mixed_quilt(q) || memcmp(q->color, original_palette, sizeof q->color) != 0;
-    int version = expanded ? 3 : q->pattern ? 2 : 1;
+                    mixed_quilt(q) || memcmp(q->color, original_palette, sizeof original_palette) != 0;
+    int version = q->fabrics > STARTER_FABRICS || q->foundation || q->applique ? 4 :
+                  expanded ? 3 : q->pattern ? 2 : 1;
     size_t n = (size_t)sprintf(out, MAGIC "%d\n%d %d ", version, q->rows, q->cols);
-    if (expanded) {
-        n += (size_t)sprintf(out + n, "%05u %02d %d %d\n", (unsigned)q->size, q->pattern, q->setting, q->seams);
-        for (int f = 0; f < FABRICS; ++f)
-            n += (size_t)sprintf(out + n, "%06X%c", (unsigned)q->color[f], f + 1 == FABRICS ? '\n' : ' ');
+    if (version >= 3) {
+        n += (size_t)sprintf(out + n, "%05u %02d %d %d", (unsigned)q->size, q->pattern, q->setting, q->seams);
+        if (version == 4) n += (size_t)sprintf(out + n, " %02d %d %d", q->fabrics, q->foundation, q->applique);
+        out[n++] = '\n';
+        for (int f = 0; f < q->fabrics; ++f)
+            n += (size_t)sprintf(out + n, "%06X%c", (unsigned)q->color[f], f + 1 == q->fabrics ? '\n' : ' ');
     } else {
         n += (size_t)sprintf(out + n, "%d", q->size / INCH);
         if (q->pattern) n += (size_t)sprintf(out + n, " %02d %d", q->pattern, q->setting);
@@ -175,12 +205,20 @@ size_t encode_plan(const Quilt *q, char out[PLAN_BYTES])
             const Block *block = &q->cell[r][c];
             if (version > 1) {
                 if (c) out[n++] = ' ';
-                if (expanded) n += (size_t)sprintf(out + n, "%02d", block->pattern);
+                if (version >= 3) n += (size_t)sprintf(out + n, "%02d", block->pattern);
                 out[n++] = (char)('0' + block->turn);
             }
             for (int p = 0; p < block_pattern(block)->count; ++p) out[n++] = (char)('A' + block->fabric[p]);
         }
         out[n++] = '\n';
+    }
+    if (version == 4) {
+        for (int layer = 0; layer < LAYER_COUNT; ++layer) {
+            if (!(layer == FOUNDATION ? q->foundation : q->applique)) continue;
+            for (int i = 0; i < LAYER_SLOTS; ++i)
+                out[n++] = q->dye[layer][i] ? (char)('A' - 1 + q->dye[layer][i]) : '.';
+            out[n++] = '\n';
+        }
     }
     out[n] = '\0';
     return n;
@@ -189,26 +227,36 @@ size_t encode_plan(const Quilt *q, char out[PLAN_BYTES])
 static bool decode_header(const char **start, const char *end, int version, Quilt *q)
 {
     const char *p = *start;
-    int fields = version == 3 ? V3_FIELDS : version == 2 ? 11 : 6;
+    int fields = version == 4 ? V4_FIELDS : version == 3 ? V3_FIELDS : version == 2 ? 11 : 6;
     if (end - p < fields || p[1] != ' ' || p[3] != ' ' || p[fields - 1] != '\n') return false;
-    int size = version == 3 ? digits(p + 4, 5, 10) : (p[4] - '0') * INCH;
+    int size = version >= 3 ? digits(p + 4, 5, 10) : (p[4] - '0') * INCH;
     if (!resize_quilt(q, p[0] - '0', p[2] - '0', size)) return false;
     if (version > 1) {
-        int index = version == 3 ? 10 : 6;
+        int index = version >= 3 ? 10 : 6;
         int id = digits(p + index, 2, 10), setting = p[index + 3] - '0';
         if (p[index - 1] != ' ' || p[index + 2] != ' ' || id < (version == 2) ||
             id > PATTERN_COUNT || setting < 0 || setting >= SETTING_COUNT) return false;
         q->pattern = (uint8_t)id;
         q->setting = (uint8_t)setting;
     }
-    if (version == 3) {
+    if (version == 4) {
+        int fabrics = digits(p + 17, 2, 10), foundation = p[20] - '0', applique = p[22] - '0';
+        if (p[16] != ' ' || p[19] != ' ' || p[21] != ' ' || fabrics < STARTER_FABRICS || fabrics > MAX_FABRICS ||
+            foundation < BLOCK_TOP || foundation >= VINE ||
+            (applique != 0 && (applique < VINE || applique >= WHOLE_COUNT)))
+            return false;
+        q->fabrics = (uint8_t)fabrics;
+        q->foundation = (uint8_t)foundation;
+        q->applique = (uint8_t)applique;
+    }
+    if (version >= 3) {
         int seams = p[15] - '0';
-        if (p[14] != ' ' || seams < 0 || seams >= SEAM_COUNT || end - p < fields + PALETTE_BYTES) return false;
+        if (p[14] != ' ' || seams < 0 || seams >= SEAM_COUNT || end - p < fields + q->fabrics * 7) return false;
         q->seams = (uint8_t)seams;
         p += fields;
-        for (int f = 0; f < FABRICS; ++f) {
+        for (int f = 0; f < q->fabrics; ++f) {
             int color = digits(p, 6, 16);
-            if (color < 0 || p[6] != (f + 1 == FABRICS ? '\n' : ' ')) return false;
+            if (color < 0 || p[6] != (f + 1 == q->fabrics ? '\n' : ' ')) return false;
             q->color[f] = (uint32_t)color;
             p += 7;
         }
@@ -224,7 +272,7 @@ bool decode_plan(const char *data, size_t size, Quilt *out)
     if (size < HEADER_BYTES + 6 || size >= PLAN_BYTES || memcmp(data, MAGIC, sizeof MAGIC - 1) != 0 ||
         data[HEADER_BYTES - 1] != '\n') return false;
     int version = data[HEADER_BYTES - 2] - '0';
-    if (version < 1 || version > 3) return false;
+    if (version < 1 || version > 4) return false;
     const char *p = data + HEADER_BYTES, *end = data + size;
     Quilt q = {0};
     if (!decode_header(&p, end, version, &q)) return false;
@@ -234,7 +282,7 @@ bool decode_plan(const char *data, size_t size, Quilt *out)
             if (version > 1) {
                 if (c && (p == end || *p++ != ' ')) return false;
                 int id = q.pattern;
-                if (version == 3) {
+                if (version >= 3) {
                     if (end - p < 3) return false;
                     id = digits(p, 2, 10);
                     p += 2;
@@ -243,18 +291,31 @@ bool decode_plan(const char *data, size_t size, Quilt *out)
                 if (p == end || *p < '0' || *p > '4') return false;
                 block->turn = (uint8_t)(*p++ - '0');
                 block->pattern = block->turn ? (uint8_t)id : 0;
-                if (version == 3 && block->pattern != id) return false;
+                if (version >= 3 && block->pattern != id) return false;
                 if (block->turn && !block->pattern) return false;
             }
             int count = block_pattern(block)->count;
             if (end - p < count) return false;
             for (int i = 0; i < count; ++i) {
                 int id = *p++ - 'A';
-                if (id < 0 || id >= FABRICS) return false;
+                if (id < 0 || id >= q.fabrics) return false;
                 block->fabric[i] = (uint8_t)id;
             }
         }
         if (p == end || *p++ != '\n') return false;
+    }
+    if (version == 4) {
+        for (int layer = 0; layer < LAYER_COUNT; ++layer) {
+            if (!(layer == FOUNDATION ? q.foundation : q.applique)) continue;
+            if (end - p < LAYER_SLOTS + 1) return false;
+            for (int i = 0; i < LAYER_SLOTS; ++i) {
+                char ch = *p++;
+                if (ch == '.') continue;
+                if (ch < 'A' || ch >= 'A' + q.fabrics) return false;
+                q.dye[layer][i] = (uint8_t)(1 + ch - 'A');
+            }
+            if (*p++ != '\n') return false;
+        }
     }
     if (p != end) return false;
     *out = q;

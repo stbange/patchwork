@@ -1,4 +1,4 @@
-#include "quilt.h"
+#include "whole.h"
 #include <SDL3/SDL.h>
 #include <float.h>
 #include <math.h>
@@ -7,7 +7,7 @@
 
 typedef struct { double x, y; } Distance;
 typedef struct { char *next; size_t left; Preferences prefs; bool complete; } Sheet;
-typedef struct { Patch shape; int count[FABRICS]; } CutTemplate;
+typedef struct { Patch shape; int count[MAX_FABRICS]; } CutTemplate;
 typedef struct {
     int pattern, turn, width, height;
     int type[MAX_PIECES];
@@ -117,7 +117,7 @@ static void print_cut(Sheet *sheet, const CutTemplate *item, int number, double 
     dimensions(measure, sheet->prefs, max.x - min.x, max.y - min.y, 3, false);
     append(sheet, caption(sheet, TEMPLATE_LINE), number, caption(sheet, name), measure);
     append(sheet, "\n  %s", caption(sheet, CUT_VERB));
-    for (int f = 0; f < FABRICS; ++f)
+    for (int f = 0; f < MAX_FABRICS; ++f)
         if (item->count[f]) append(sheet, "  %c %d", 'A' + f, item->count[f]);
     append(sheet, "\n");
     if (!rectangular) {
@@ -176,7 +176,7 @@ static bool detailed_sheet(const Quilt *q, Sheet *sheet, int pieces)
     append(sheet, "\n%s (%s)\n\n", caption(sheet, CUT_GUIDE), unit_label(sheet->prefs));
     for (int i = 0; i < types; ++i) {
         int total = 0;
-        for (int f = 0; f < FABRICS; ++f) total += templates[i].count[f];
+        for (int f = 0; f < MAX_FABRICS; ++f) total += templates[i].count[f];
         if (total) print_cut(sheet, &templates[i], i + 1, scale);
     }
     SDL_free(templates);
@@ -216,12 +216,78 @@ static bool detailed_sheet(const Quilt *q, Sheet *sheet, int pieces)
     return sheet->complete;
 }
 
+typedef struct {
+    Sheet *sheet;
+    const Quilt *q;
+    Layer layer;
+} PieceList;
+
+static void list_piece(const Outline *s, void *data)
+{
+    if (s->bridge) return;
+    PieceList *list = data;
+    XY cut[MAX_CUT_POINTS];
+    int n = s->n;
+    const XY *points = s->p;
+    if (list->layer == FOUNDATION) {
+        n = cut_outline(s, (double)SEAM_ALLOWANCE / list->q->size, cut);
+        points = cut;
+    }
+    double left = points[0].x, right = left, top = points[0].y, bottom = top;
+    for (int i = 1; i < n; ++i) {
+        left = fmin(left, points[i].x);
+        right = fmax(right, points[i].x);
+        top = fmin(top, points[i].y);
+        bottom = fmax(bottom, points[i].y);
+    }
+    char size[2 * NUMBER_BYTES + 16];
+    dimensions(size, list->sheet->prefs, (right - left) * list->q->size, (bottom - top) * list->q->size, 3, true);
+    append(list->sheet, "%c%d  %s  /  %c  /  %s\n", list->layer == FOUNDATION ? 'T' : 'A', s->id + 1,
+           caption(list->sheet, s->name), 'A' + s->fabric, size);
+}
+
+static void fabric_list(Sheet *sheet, const Quilt *q, const int *counts)
+{
+    for (int f = 0; f < q->fabrics; ++f) {
+        if (f < STARTER_FABRICS && q->color[f] == original_palette[f])
+            append(sheet, "%c  %-14s %2d\n", 'A' + f, fabric_name[f][sheet->prefs.language], counts[f]);
+        else
+            append(sheet, "%c  #%06X        %2d\n", 'A' + f, (unsigned)q->color[f], counts[f]);
+    }
+}
+
+static bool whole_sheet(const Quilt *q, Sheet *sheet, const int *counts, int pieces)
+{
+    append(sheet, caption(sheet, WHOLE_TOTAL), pieces);
+    append(sheet, "\n%s\n\n", caption(sheet, TRACE_HELP));
+    fabric_list(sheet, q, counts);
+    for (int layer = 0; layer < LAYER_COUNT; ++layer) {
+        int id = layer == FOUNDATION ? q->foundation : q->applique;
+        if (!id) continue;
+        append(sheet, "\n%s / %s\n", caption(sheet, layer == FOUNDATION ? FOUNDATION_NAME : APPLIQUE_NAME),
+               caption(sheet, whole_name[id]));
+        if (layer == FOUNDATION)
+            append(sheet, caption(sheet, FOUNDATION_CUT), seam_measure(sheet->prefs));
+        else
+            append(sheet, "%s", caption(sheet, APPLIQUE_CUT));
+        if (id == RIBBONS) append(sheet, "\n%s", caption(sheet, WEAVE_HELP));
+        append(sheet, "\n%s\n", caption(sheet, PIECE_LIST));
+        PieceList list = {sheet, q, (Layer)layer};
+        visit_layer(q, (Layer)layer, list_piece, &list);
+    }
+    if (q->foundation) return sheet->complete;
+    append(sheet, "\n%s\n", caption(sheet, BLOCK_LAYER));
+    append(sheet, caption(sheet, SEAM_PATCH), seam_measure(sheet->prefs));
+    append(sheet, "\n");
+    return detailed_sheet(q, sheet, pieces);
+}
+
 bool cutting_sheet(const Quilt *q, Preferences prefs, char out[SHEET_BYTES])
 {
     Sheet sheet = {out, SHEET_BYTES, prefs, true};
-    int counts[FABRICS], pieces = 0, blocks = q->rows * q->cols;
+    int counts[MAX_FABRICS], pieces = 0, blocks = q->rows * q->cols;
     count_pieces(q, counts);
-    for (int f = 0; f < FABRICS; ++f) pieces += counts[f];
+    for (int f = 0; f < MAX_FABRICS; ++f) pieces += counts[f];
     char first[2 * NUMBER_BYTES + 16], second[2 * NUMBER_BYTES + 16];
     double w = q->cols * q->size, h = q->rows * q->size;
     dimensions(first, prefs, w, h, 3, true);
@@ -231,6 +297,7 @@ bool cutting_sheet(const Quilt *q, Preferences prefs, char out[SHEET_BYTES])
     append(&sheet, caption(&sheet, FINISHED_LINE), first, second);
     append(&sheet, "\n");
 
+    if (q->foundation || q->applique) return whole_sheet(q,&sheet,counts,pieces);
     bool mixed = mixed_quilt(q);
     bool detailed = q->pattern || mixed || q->seams != GRID_SEAMS;
     if (detailed) {
@@ -251,12 +318,7 @@ bool cutting_sheet(const Quilt *q, Preferences prefs, char out[SHEET_BYTES])
     append(&sheet, ".\n");
     append(&sheet, caption(&sheet, detailed ? SEAM_PATCH : SEAM_SQUARE), seam_measure(prefs));
     append(&sheet, "\n\n");
-    for (int f = 0; f < FABRICS; ++f) {
-        if (q->color[f] == original_palette[f])
-            append(&sheet, "%c  %-14s %2d\n", 'A' + f, fabric_name[f][prefs.language], counts[f]);
-        else
-            append(&sheet, "%c  #%06X        %2d\n", 'A' + f, (unsigned)q->color[f], counts[f]);
-    }
+    fabric_list(&sheet,q,counts);
     if (detailed) return detailed_sheet(q, &sheet, pieces);
     append(&sheet, "\n%s\n", caption(&sheet, LAYOUT_HEAD));
     for (int r = 0; r < q->rows; ++r)

@@ -1,10 +1,12 @@
 #include "pdf.h"
+#include "whole.h"
 #include "stb_truetype.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
-enum { FIRST_PAGE = 8, MAX_PAGES = 256, PAPER_WIDTH = 595, PAPER_HEIGHT = 842, MARGIN = 44 };
+enum { FIRST_PAGE = 8, MAX_PAGES = 384, PAPER_WIDTH = 595, PAPER_HEIGHT = 842, MARGIN = 44 };
 enum { FIRST_GLYPH = 32, LAST_GLYPH = 0x17f, BODY_SIZE = 10, LINE_HEIGHT = 14 };
 
 typedef struct { SDL_IOStream *file; bool ok; } Writer;
@@ -125,9 +127,9 @@ static void font_objects(Writer *out, Sint64 *offset, Font *font, const void *da
     unicode_map(out, offset, font);
 }
 
-static void line(Writer *page, const Font *font, int y, int size, const char *p, const char *end)
+static void text_at(Writer *page, const Font *font, double x, double y, int size, const char *p, const char *end)
 {
-    put(page, "BT /F1 %d Tf 1 0 0 1 %d %d Tm <", size, MARGIN, y);
+    put(page, "BT /F1 %d Tf 1 0 0 1 %.3f %.3f Tm <", size, x, y);
     size_t length = (size_t)(end - p);
     for (Uint32 code; (code = SDL_StepUTF8(&p, &length)) != 0;)
         put(page, "%04X", (unsigned)font->glyph[code_index(code)]);
@@ -150,12 +152,44 @@ static const char *line_end(const Font *font, const char *text)
     return p;
 }
 
+typedef struct {
+    Writer *page;
+    const Quilt *q;
+    const Font *font;
+    double left, top, step;
+    Layer layer;
+} Diagram;
+
+static void path(Diagram *d, const XY *p, int n, bool closed)
+{
+    for (int i = 0; i < n; ++i)
+        put(d->page, "%.3f %.3f %c ", d->left + p[i].x * d->step, d->top - p[i].y * d->step, i ? 'l' : 'm');
+    if (closed) put(d->page, "h ");
+}
+
+static void map_piece(const Outline *s, void *data)
+{
+    Diagram *d = data;
+    unsigned rgb = d->q->color[s->fabric];
+    put(d->page, "%.3f %.3f %.3f rg ", (rgb >> 16) / 255.0, ((rgb >> 8) & 255) / 255.0, (rgb & 255) / 255.0);
+    path(d, s->p, s->n, true);
+    if (s->bridge) {
+        put(d->page, "f ");
+        path(d, s->p, s->n / 2, false);
+        path(d, s->p + s->n / 2, s->n / 2, false);
+        put(d->page, "S\n");
+    } else
+        put(d->page, "B\n");
+}
+
 static void map_quilt(Writer *page, const Quilt *q)
 {
     double step = fmin((PAPER_WIDTH - 2.0 * MARGIN) / q->cols, 274.0 / q->rows);
     double left = (PAPER_WIDTH - step * q->cols) / 2, top = 753;
     put(page, "q 0.4 w 0.42 0.4 0.36 RG\n");
-    for (int r = 0; r < q->rows; ++r)
+    Diagram d = {page,q,NULL,left,top,step,FOUNDATION};
+    if (q->foundation) visit_layer(q,FOUNDATION,map_piece,&d);
+    else for (int r = 0; r < q->rows; ++r)
         for (int c = 0; c < q->cols; ++c) {
             const Block *block = &q->cell[r][c];
             BlockBounds b = block_bounds(q, r, c);
@@ -172,7 +206,131 @@ static void map_quilt(Writer *page, const Quilt *q)
                 put(page, "h B\n");
             }
         }
+    visit_layer(q,APPLIQUE,map_piece,&d);
     put(page, "Q\n");
+}
+
+static void finish_page(Writer *out, Sint64 *offset, Writer *page, int number)
+{
+    int id = FIRST_PAGE + number * 2;
+    object(out, offset, id);
+    put(out,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d]"
+        " /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>\nendobj\n",
+        PAPER_WIDTH, PAPER_HEIGHT, id + 1);
+    if (page->ok)
+        stream_object(out, offset, id + 1, pdf_data(page->file), (size_t)SDL_GetIOSize(page->file), false);
+    else
+        out->ok = false;
+    SDL_CloseIO(page->file);
+}
+
+enum { FRAME_W = PAPER_WIDTH - 2 * MARGIN, FRAME_H = 654, FRAME_TOP = 742 };
+typedef struct {
+    double x0, y0, x1, y1;
+} Bounds;
+
+static void include(Bounds *b, XY p)
+{
+    b->x0 = fmin(b->x0, p.x);
+    b->x1 = fmax(b->x1, p.x);
+    b->y0 = fmin(b->y0, p.y);
+    b->y1 = fmax(b->y1, p.y);
+}
+
+typedef struct {
+    Diagram d;
+    Bounds bounds;
+    bool measuring;
+} Trace;
+
+static void trace_piece(const Outline *s, void *data)
+{
+    if (s->bridge) return;
+    Trace *t = data;
+    Diagram *d = &t->d;
+    XY cut[MAX_CUT_POINTS];
+    int ncut = 0;
+    Bounds bounds = {s->p[0].x, s->p[0].y, s->p[0].x, s->p[0].y};
+    if (d->layer == FOUNDATION) ncut = cut_outline(s, (double)SEAM_ALLOWANCE / d->q->size, cut);
+    for (int i = 0; i < s->n; ++i) include(&bounds, s->p[i]);
+    for (int i = 0; i < ncut; ++i) include(&bounds, cut[i]);
+    if (t->measuring) {
+        include(&t->bounds, (XY){bounds.x0, bounds.y0});
+        include(&t->bounds, (XY){bounds.x1, bounds.y1});
+        return;
+    }
+    if (bounds.x1 < t->bounds.x0 || bounds.y1 < t->bounds.y0 || bounds.x0 > t->bounds.x1 || bounds.y0 > t->bounds.y1)
+        return;
+    Writer *page = d->page;
+    if (d->layer == FOUNDATION) {
+        put(page, "0.48 G 0.38 w [3 2] 0 d ");
+        path(d, cut, ncut, true);
+        put(page, "S ");
+    }
+    put(page, "0 G 0.65 w [] 0 d ");
+    path(d, s->p, s->n, true);
+    put(page, "S\n");
+    XY pos = outline_label(s);
+    if (pos.x < t->bounds.x0 || pos.x >= t->bounds.x1 || pos.y < t->bounds.y0 || pos.y >= t->bounds.y1) return;
+    char label[16];
+    snprintf(label, sizeof label, "%c%d/%c", d->layer == FOUNDATION ? 'T' : 'A', s->id + 1, 'A' + s->fabric);
+    text_at(page, d->font, d->left + pos.x * d->step - 6, d->top - pos.y * d->step, 7, label, label + strlen(label));
+}
+
+static int trace_pages(Writer *out, Sint64 *offset, const Font *font, const Quilt *q, Preferences prefs, int count)
+{
+    const double step = 72.0 * q->size / INCH;
+    Trace t = {.d = {NULL, q, font, 0, 0, step, FOUNDATION}, .bounds = {0, 0, q->cols, q->rows}, .measuring = true};
+    visit_layer(q, FOUNDATION, trace_piece, &t);
+    Bounds extent = t.bounds;
+    int nx = (int)ceil((extent.x1 - extent.x0) * step / FRAME_W);
+    int ny = (int)ceil((extent.y1 - extent.y0) * step / FRAME_H);
+    t.measuring = false;
+    for (int layer = 0; layer < LAYER_COUNT; ++layer) {
+        int design = layer == FOUNDATION ? q->foundation : q->applique;
+        if (!design) continue;
+        t.d.layer = (Layer)layer;
+        for (int y = 0; y < ny; ++y)
+            for (int x = 0; x < nx; ++x) {
+                if (!out->ok || count >= MAX_PAGES) {
+                    out->ok = false;
+                    return count;
+                }
+                Writer page = {SDL_IOFromDynamicMem(), true};
+                if (!page.file) {
+                    out->ok = false;
+                    return count;
+                }
+                t.d.page = &page;
+                t.bounds = (Bounds){extent.x0 + x * FRAME_W / step, extent.y0 + y * FRAME_H / step,
+                                    extent.x0 + (x + 1) * FRAME_W / step, extent.y0 + (y + 1) * FRAME_H / step};
+                t.d.left = MARGIN - t.bounds.x0 * step;
+                t.d.top = FRAME_TOP + t.bounds.y0 * step;
+                char title[150];
+                snprintf(title, sizeof title, tr(prefs.language, TRACE_TILE), tr(prefs.language, whole_name[design]),
+                         x + 1, y + 1, nx, ny);
+                text_at(&page, font, MARGIN, 801, 14, title, title + strlen(title));
+                const char *help = tr(prefs.language, PRINT_SCALE);
+                text_at(&page, font, MARGIN, 779, 10, help, help + strlen(help));
+                help = tr(prefs.language, layer == FOUNDATION ? TRACE_PIECED : TRACE_RAW);
+                text_at(&page, font, MARGIN, 761, 9, help, help + strlen(help));
+                put(&page, "q %d %d %d %d re W n\n", MARGIN, FRAME_TOP - FRAME_H, FRAME_W, FRAME_H);
+                if (layer == APPLIQUE)
+                    put(&page, "0.5 G 0.5 w [1 2] 0 d %.3f %.3f %.3f %.3f re S\n", t.d.left, t.d.top - q->rows * step,
+                        q->cols * step, q->rows * step);
+                visit_layer(q, (Layer)layer, trace_piece, &t);
+                put(&page, "Q 0 G 0.35 w %d %d %d %d re S\n", MARGIN, FRAME_TOP - FRAME_H, FRAME_W, FRAME_H);
+                double ruler = prefs.unit == INCHES ? 72 : 5 * 72 / 2.54;
+                put(&page, "0.8 w %d 57 m %.3f 57 l S %d 53 m %d 61 l S %.3f 53 m %.3f 61 l S\n", MARGIN,
+                    MARGIN + ruler, MARGIN, MARGIN, MARGIN + ruler, MARGIN + ruler);
+                snprintf(title, sizeof title, "%s  %d %s", tr(prefs.language, SCALE_CHECK),
+                         prefs.unit == INCHES ? 1 : 5, unit_label(prefs));
+                text_at(&page, font, MARGIN + ruler + 10, 53, 10, title, title + strlen(title));
+                finish_page(out, offset, &page, count++);
+            }
+    }
+    return count;
 }
 
 static int pages(Writer *out, Sint64 *offset, const Font *font, const Quilt *q, const char *text)
@@ -184,25 +342,18 @@ static int pages(Writer *out, Sint64 *offset, const Font *font, const Quilt *q, 
         int y = PAPER_HEIGHT - MARGIN;
         if (!count) {
             const char *title = strchr(text, '\n');
-            line(&page, font, y, 17, text, title);
+            text_at(&page, font, MARGIN, y, 17, text, title);
             map_quilt(&page, q);
             text = title + 1;
             y = 456;
         }
         while (page.ok && *text && y >= MARGIN) {
             const char *end = line_end(font, text);
-            if (end != text) line(&page, font, y, BODY_SIZE, text, end);
+            if (end != text) text_at(&page, font, MARGIN, y, BODY_SIZE, text, end);
             text = end + (*end == '\n' || *end == ' ');
             y -= LINE_HEIGHT;
         }
-        int id = FIRST_PAGE + count++ * 2;
-        object(out, offset, id);
-        put(out, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d]"
-                 " /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>\nendobj\n",
-                 PAPER_WIDTH, PAPER_HEIGHT, id + 1);
-        if (page.ok) stream_object(out, offset, id + 1, pdf_data(page.file), (size_t)SDL_GetIOSize(page.file), false);
-        else out->ok = false;
-        SDL_CloseIO(page.file);
+        finish_page(out,offset,&page,count++);
     }
     if (*text) out->ok = false;
     return count;
@@ -224,9 +375,10 @@ SDL_IOStream *make_pdf(const Quilt *q, Preferences prefs)
         Sint64 offset[FIRST_PAGE + MAX_PAGES * 2] = {0};
         bytes(&out, "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", 15);
         object(&out, offset, 1);
-        put(&out, "<< /Type /Catalog /Pages 2 0 R /Lang (%s) >>\nendobj\n", language_tag[prefs.language]);
+        put(&out, "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintScaling /None >> /Lang (%s) >>\nendobj\n", language_tag[prefs.language]);
         font_objects(&out, offset, &font, data, length);
         int count = pages(&out, offset, &font, q, text);
+        count = trace_pages(&out,offset,&font,q,prefs,count);
         object(&out, offset, 2);
         put(&out, "<< /Type /Pages /Count %d /Kids [", count);
         for (int p = 0; p < count; ++p) put(&out, "%d 0 R ", FIRST_PAGE + p * 2);

@@ -122,6 +122,56 @@ def run(directory, check_file, renderer):
                 assert "Triangle, 2.854 x 2.854 in" in sheet and "[- A1]" in sheet
                 assert "[R0 B2 A2" in sheet and "[R90" in sheet
 
+                # Paint one curved shell on both sides of the old vertical block boundary.
+                click_at(410, 32)
+                page.keyboard.press("n")
+                view_contains("Hex color. 679E9B")
+                page.keyboard.type("007A78")
+                page.keyboard.press("Enter")
+                saved_contains("06 0 0\n")
+                page.keyboard.press("f")
+                click_at(180, 200)
+                saved_contains("223F52 E0B570 007A78")
+                page.keyboard.press("p")
+                click_at(462, 169)
+                click_at(548, 278)
+                view_contains("Whole quilt. Clamshells.")
+                saved_contains("06 0 0\n")
+                click_at(786, 633)
+                view_contains("Design wall. Clamshells.")
+                saved_contains("06 4 0\n")
+                left, right, neighbor = pixels(198, 212, 4), pixels(215, 212, 4), pixels(153, 244, 4)
+                click_at(202, 214)
+                assert pixels(198, 212, 4) != left and pixels(215, 212, 4) != right
+                assert pixels(153, 244, 4) == neighbor
+
+                # The even crossings belong to the same physical ribbon. The odd crossing passes over it.
+                page.keyboard.press("p")
+                click_at(550, 485)
+                view_contains("Ribbon Lattice")
+                page.keyboard.press("Enter")
+                saved_contains("06 4 7\n")
+                crossing = [pixels(x, 234, 4) for x in (167, 248, 329)]
+                click_at(168, 235)
+                painted = [pixels(x, 234, 4) for x in (167, 248, 329)]
+                assert painted[0] != crossing[0] and painted[1] == crossing[1] and painted[2] != crossing[2]
+                page.keyboard.press("Control+z")
+                assert [pixels(x, 234, 4) for x in (167, 248, 329)] == crossing
+                page.keyboard.press("Control+y")
+                open_plan()
+                view_contains("Design wall. Ribbon Lattice.")
+                assert [pixels(x, 234, 4) for x in (167, 248, 329)] == painted
+                sheet = download_sheet()
+                assert "Clamshells" in sheet and "A1  Ribbon  /  F" in sheet
+                assert "F  #007A78         2" in sheet and "Weave the second set" in sheet
+                with page.expect_download(timeout=12000) as traced:
+                    click_at(900, 634)
+                path = Path(traced.value.path())
+                text = subprocess.check_output(["pdftotext", "-layout", str(path), "-"]).decode()
+                assert "Clamshells / tile 1,1" in text and "Ribbon Lattice / tile 1,1" in text
+                assert "Scale check 1 in" in text and "Dashed: cutting line" in text
+                assert b"/PrintScaling /None" in path.read_bytes()
+
                 page.evaluate("localStorage.setItem('patchwork.plan.v1', 'broken')")
                 open_plan()
                 page.keyboard.press("Space")
@@ -209,12 +259,24 @@ def run(directory, check_file, renderer):
                     decoded = subprocess.check_output(["pdftotext", str(pdf), "-"], encoding="utf-8")
                     assert "PLAN CIĘCIA" in decoded and "50 × 50 cm" in decoded and "0,635 cm" in decoded
                     assert "Domek z bali" in decoded and "Lecące gęsi" in decoded and "#0345AB" in decoded
+                page.keyboard.press("p")
+                page.keyboard.press("4")
+                click_at(340, 462)
+                view_contains("Staw z karpiami koi")
+                click_at(953, 635)
+                saved_contains("05 1 6\n")
+                page.keyboard.press("Tab")
+                with page.expect_download(timeout=12000) as traced:
+                    page.keyboard.press("d")
+                text = subprocess.check_output(["pdftotext", "-layout", traced.value.path(), "-"]).decode()
+                assert "Staw z karpiami koi / arkusz 1,1" in text
+                assert "Liść lilii" in text and "Tułów karpia" in text and "Sprawdź skalę 5 cm" in text
                 assert not errors, errors
                 browser.close()
         finally:
             server.shutdown()
             thread.join()
-    print(f"Browser journey passed with {renderer}: legacy plans, languages, mixed blocks, palettes, units and PDF.")
+    print(f"Browser journey passed with {renderer}: saved plans, extra fabrics, whole-quilt piecing, appliqué, units and tracing PDFs.")
 
 
 if __name__ == "__main__":

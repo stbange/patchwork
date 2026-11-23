@@ -18,8 +18,8 @@ typedef struct {
 struct View {
     SDL_Renderer *renderer;
     Face body, title;
-    SDL_Texture *fabric[FABRICS];
-    uint32_t color[FABRICS];
+    SDL_Texture *fabric[MAX_FABRICS];
+    uint32_t color[MAX_FABRICS];
 };
 
 static const unsigned ink = 0x263e35, muted = 0x56665b, paper = 0xfaf8f2,
@@ -41,6 +41,9 @@ const SDL_FRect control_box[CONTROL_COUNT] = {
     [SHARE] = {753, 560, 287, 44}, [EXPORT_PDF] = {753, 613, 287, 44},
     [FILTER_ALL] = {36, 150, 95, 37}, [FILTER_TRADITIONAL] = {143, 150, 122, 37},
     [FILTER_MODERN] = {277, 150, 106, 37},
+    [FILTER_WHOLE] = {395, 150, 143, 37},
+    [EDIT_LAYER] = {519, 636, 187, 30}, [REMOVE_OVERLAY] = {876, 551, 164, 35},
+    [RESTORE_BLOCKS] = {705, 551, 164, 35},
     [PREV_PAGE] = {36, 620, 101, 37}, [NEXT_PAGE] = {203, 620, 85, 37},
     [APPLY] = {705, 615, 164, 42}, [BRUSH] = {876, 615, 164, 42},
     [ORIGINAL_COLORS] = {754, 450, 286, 40},
@@ -67,6 +70,14 @@ SDL_FRect palette_card(int slot)
 SDL_FRect slider_box(int channel)
 {
     return (SDL_FRect){355, 342 + channel * 35, 370, 21};
+}
+
+SDL_FRect fabric_nav(Control id, Control screen)
+{
+    float x = screen == SHEET ? 48 : 754, y = screen == SHEET ? 619 : 122;
+    if (id == FABRIC_PREV) return (SDL_FRect){x, y, 30, 28};
+    if (id == FABRIC_NEXT) return (SDL_FRect){x + 100, y, 30, 28};
+    return (SDL_FRect){x + 143, y, 143, 28};
 }
 
 static bool load_face(View *v, Face *face, const char *base, const char *name)
@@ -126,7 +137,7 @@ static SDL_Texture *fabric_tile(SDL_Renderer *renderer, int f, unsigned rgb)
         Uint32 *pixels = (Uint32 *)((Uint8 *)s->pixels + y * s->pitch);
         for (int x = 0; x < s->w; ++x) {
             int weave = (x % 3 == 0) * 4 - (y % 3 == 0) * 5 + (x * 13 + y * 7) % 5 - 2;
-            int offset = motif(f, x, y) + weave;
+            int offset = motif(f % STARTER_FABRICS, x, y) + weave;
             unsigned color = 0xff000000;
             for (int shift = 0; shift <= 16; shift += 8) {
                 int channel = (int)((rgb >> shift) & 255);
@@ -147,7 +158,7 @@ View *open_view(SDL_Renderer *renderer, const char *base)
     v->renderer = renderer;
     bool ok = load_face(v, &v->body, base, "DM-Sans.ttf") &&
               load_face(v, &v->title, base, "InstrumentSerif-Regular.ttf");
-    for (int f = 0; ok && f < FABRICS; ++f) {
+    for (int f = 0; ok && f < STARTER_FABRICS; ++f) {
         v->color[f] = original_palette[f];
         ok = (v->fabric[f] = fabric_tile(renderer, f, v->color[f])) != NULL;
     }
@@ -161,7 +172,7 @@ void close_view(View *v)
     if (!v) return;
     SDL_DestroyTexture(v->body.texture);
     SDL_DestroyTexture(v->title.texture);
-    for (int f = 0; f < FABRICS; ++f) SDL_DestroyTexture(v->fabric[f]);
+    for (int f = 0; f < MAX_FABRICS; ++f) SDL_DestroyTexture(v->fabric[f]);
     SDL_free(v);
 }
 
@@ -301,41 +312,94 @@ static void fabric_piece(View *v, SDL_FRect cell, const Patch *patch, int turn, 
     }
 }
 
+typedef struct {
+    View *v;
+    SDL_FRect box;
+    double step;
+    unsigned style;
+    int selected;
+} ClothDrawing;
+
+static void draw_outline(const Outline *s, void *data)
+{
+    ClothDrawing *d = data;
+    View *v = d->v;
+    SDL_Vertex mesh[OUTLINE_POINTS];
+    SDL_FPoint edge[OUTLINE_POINTS + 1];
+    int indices[3 * (OUTLINE_POINTS - 2)];
+    unsigned rgb = v->color[s->fabric];
+    SDL_FColor fill = {((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, 1};
+    for (int i = 0; i < s->n; ++i) {
+        edge[i] = (SDL_FPoint){(float)(d->box.x + s->p[i].x * d->step), (float)(d->box.y + s->p[i].y * d->step)};
+        mesh[i] = (SDL_Vertex){edge[i], fill, {0, 0}};
+    }
+    int count = outline_mesh(s, indices);
+    if (count) SDL_RenderGeometry(v->renderer, NULL, mesh, s->n, indices, count);
+    edge[s->n] = edge[0];
+    color(v, s->id == d->selected ? 0x263e35 : 0x887e69);
+    if (s->bridge) {
+        SDL_RenderLines(v->renderer, edge, s->n / 2);
+        SDL_RenderLines(v->renderer, edge + s->n / 2, s->n / 2);
+        return;
+    }
+    SDL_RenderLines(v->renderer, edge, s->n + 1);
+    if ((d->style & LETTERS) || s->id == d->selected) {
+        XY p = outline_label(s);
+        float x = (float)(d->box.x + d->step * p.x), y = (float)(d->box.y + d->step * p.y);
+        if (s->id == d->selected) {
+            box(v, (SDL_FRect){x - 10, y - 10, 20, 20}, paper);
+            border(v, (SDL_FRect){x - 10, y - 10, 20, 20}, ink);
+        }
+        char code[] = {(char)('A' + s->fabric), 0};
+        body(v, x - 4, y - 7, 15, s->id == d->selected ? ink : fabric_ink(v, s->fabric), code);
+    }
+}
+
 static void quilt_pieces(View *v, const Quilt *q, SDL_FRect b, const App *focus, unsigned style)
 {
     float side = b.w / q->cols;
-    for (int r = 0; r < q->rows; ++r) {
-        for (int c = 0; c < q->cols; ++c) {
-            const Block *block = &q->cell[r][c];
-            BlockBounds shape = block_bounds(q, r, c);
-            SDL_FRect cell = {b.x + (float)shape.x * side, b.y + (float)shape.y * side,
-                              (float)shape.w * side, (float)shape.h * side};
-            int picked = focus && focus->cursor && r == focus->row && c == focus->col ? focus->patch : -1;
-            const Pattern *pattern = block_pattern(block);
-            if (block->turn || !(style & TEXTURED)) {
-                for (int p = 0; p < pattern->count; ++p)
-                    fabric_piece(v, cell, &pattern->patches[p], block->turn, block->fabric[p],
-                                 style | (p == picked ? FOCUSED : 0));
-                continue;
-            }
-            int fabric = block->fabric[0];
-            tile(v, fabric, cell, style & LETTERS ? 0.65f : 1.0f);
-            color(v, 0x847c68);
-            SDL_RenderLine(v->renderer, cell.x, cell.y + cell.h - 1, cell.x + cell.w - 1, cell.y + cell.h - 1);
-            SDL_RenderLine(v->renderer, cell.x + cell.w - 1, cell.y, cell.x + cell.w - 1, cell.y + cell.h - 1);
-            if (style & LETTERS) {
-                char letter[2] = {(char)('A' + fabric), 0};
-                body(v, cell.x + cell.w / 2 - 5, cell.y + cell.h / 2 - 10, 20, fabric_ink(v, fabric), letter);
-            }
-            if (picked == 0) {
-                border(v, (SDL_FRect){cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4}, paper);
-                border(v, (SDL_FRect){cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6}, ink);
-            }
-            if (focus && focus->brush && picked >= 0) {
-                border(v, (SDL_FRect){cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2}, green);
+    ClothDrawing d = {v, b, side, style, -1};
+    if (focus && focus->cursor && focus->selected_layer == FOUNDATION) d.selected = focus->whole_piece;
+    if (q->foundation)
+        visit_layer(q, FOUNDATION, draw_outline, &d);
+    else
+        for (int r = 0; r < q->rows; ++r) {
+            for (int c = 0; c < q->cols; ++c) {
+                const Block *block = &q->cell[r][c];
+                BlockBounds shape = block_bounds(q, r, c);
+                SDL_FRect cell = {b.x + (float)shape.x * side, b.y + (float)shape.y * side, (float)shape.w * side,
+                                  (float)shape.h * side};
+                int picked = focus && focus->cursor && focus->selected_layer == FOUNDATION && r == focus->row &&
+                                     c == focus->col
+                                 ? focus->patch
+                                 : -1;
+                const Pattern *pattern = block_pattern(block);
+                if (block->turn || !(style & TEXTURED)) {
+                    for (int p = 0; p < pattern->count; ++p)
+                        fabric_piece(v, cell, &pattern->patches[p], block->turn, block->fabric[p],
+                                     style | (p == picked ? FOCUSED : 0));
+                    continue;
+                }
+                int fabric = block->fabric[0];
+                tile(v, fabric, cell, style & LETTERS ? 0.65f : 1.0f);
+                color(v, 0x847c68);
+                SDL_RenderLine(v->renderer, cell.x, cell.y + cell.h - 1, cell.x + cell.w - 1, cell.y + cell.h - 1);
+                SDL_RenderLine(v->renderer, cell.x + cell.w - 1, cell.y, cell.x + cell.w - 1, cell.y + cell.h - 1);
+                if (style & LETTERS) {
+                    char letter[2] = {(char)('A' + fabric), 0};
+                    body(v, cell.x + cell.w / 2 - 5, cell.y + cell.h / 2 - 10, 20, fabric_ink(v, fabric), letter);
+                }
+                if (picked == 0) {
+                    border(v, (SDL_FRect){cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4}, paper);
+                    border(v, (SDL_FRect){cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6}, ink);
+                }
+                if (focus && focus->brush && picked >= 0) {
+                    border(v, (SDL_FRect){cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2}, green);
+                }
             }
         }
-    }
+    d.selected = focus && focus->cursor && focus->selected_layer == APPLIQUE ? focus->whole_piece : -1;
+    visit_layer(q,APPLIQUE,draw_outline,&d);
 }
 
 static void board(View *v, const Quilt *q, SDL_FRect mat, const App *focus, unsigned style)
@@ -379,25 +443,44 @@ static void stepper(View *v, Control minus, const char *label, const char *numbe
     button_label(v, value, number, 21, ink);
 }
 
+static void basket_nav(App *a, const Quilt *q)
+{
+    View *v = a->view;
+    int start = a->fabric_page * STARTER_FABRICS, end = SDL_min(q->fabrics, start + STARTER_FABRICS);
+    SDL_FRect prev = fabric_nav(FABRIC_PREV, a->screen), next = fabric_nav(FABRIC_NEXT, a->screen);
+    choice(v, prev, "<", false, start > 0);
+    choice(v, next, ">", false, end < q->fabrics);
+    char range[] = {(char)('A' + start), ' ', '-', ' ', (char)('A' + end - 1), 0};
+    if (end == start + 1) range[1] = 0;
+    button_label(v, (SDL_FRect){prev.x + 30, prev.y, 70, prev.h}, range, 17, ink);
+    if (a->screen != SHEET)
+        choice(v, fabric_nav(ADD_SWATCH, a->screen),
+               tr(a->prefs.language, q->fabrics < MAX_FABRICS ? ADD_FABRIC : FABRIC_LIMIT), false,
+               q->fabrics < MAX_FABRICS);
+}
+
 static void fabric_swatches(App *a, const Quilt *q, bool edit_mode)
 {
     View *v = a->view;
     Language lang = a->prefs.language;
-    for (int f = 0; f < FABRICS; ++f) {
-        SDL_FRect b = control_box[SWATCH_A + f];
+    basket_nav(a, q);
+    for (int slot = 0; slot < STARTER_FABRICS; ++slot) {
+        int f = a->fabric_page * STARTER_FABRICS + slot;
+        if (f >= q->fabrics) break;
+        SDL_FRect b = control_box[SWATCH_A + slot];
         bool picked = f == a->fabric && !a->brush;
         if (picked) { box(v, b, 0xe8ecdf); border(v, b, green); }
         else if (edit_mode) border(v, b, rule);
         tile(v, f, (SDL_FRect){b.x + 8, b.y + 7, 34, 30}, 0.8f);
         char code[8] = {(char)('A' + f), 0};
         body(v, b.x + 54, b.y + 12, 18, muted, code);
-        const char *name = fabric_name[f][lang];
-        if (edit_mode || q->color[f] != original_palette[f]) {
+        const char *name = NULL;
+        if (edit_mode || f >= STARTER_FABRICS || q->color[f] != original_palette[f]) {
             snprintf(code, sizeof code, "#%06X", (unsigned)q->color[f]);
             name = code;
-        }
+        } else name = fabric_name[f][lang];
         fitted(v, &v->body, (SDL_FRect){b.x + 81, b.y + 9, b.w - 111, 36}, 22, ink, name, false);
-        char key[2] = {(char)('1' + f), 0};
+        char key[2] = {(char)('1' + slot), 0};
         body(v, b.x + b.w - 23, b.y + 13, 16, muted, key);
     }
 }
@@ -412,6 +495,15 @@ static void design(App *a, const Quilt *q)
     dimensions(size, prefs, q->cols * q->size, q->rows * q->size, 3, true);
     snprintf(line, sizeof line, tr(lang, q->pattern || mixed_quilt(q) ? GRID_BLOCKS : GRID_PATCHES),
              q->cols, q->rows, size);
+    if (q->foundation || q->applique) {
+        const char *base = q->foundation    ? tr(lang, whole_name[q->foundation])
+                           : mixed_quilt(q) ? tr(lang, MIXED_NAME)
+                                            : patterns[q->pattern].name[lang];
+        if (q->applique)
+            snprintf(line, sizeof line, "%s   /   %s", base, size);
+        else
+            snprintf(line, sizeof line, tr(lang, WHOLE_DIMENSIONS), size);
+    }
     body(v, 38, 139, 20, muted, line);
     board(v, q, design_mat, a, TEXTURED);
     if (a->brush) {
@@ -425,8 +517,9 @@ static void design(App *a, const Quilt *q)
         choice(v, control_box[FINISH_PLACING], tr(lang, FINISH_NAME), false, true);
     } else {
         body(v, 37, 641, 18, muted, tr(lang, CHOOSE_FABRIC));
+        if (q->applique) choice(v,control_box[EDIT_LAYER],tr(lang,a->background_only ? PICK_ALL : PICK_TOP),false,true);
     }
-    title(v, 754, 105, 38, tr(lang, FABRIC_BASKET));
+    title(v, 754, 80, 38, tr(lang, FABRIC_BASKET));
     fabric_swatches(a, q, false);
     box(v, (SDL_FRect){754, 415, 286, 1}, rule);
     title(v, 754, 425, 37, tr(lang, QUILT_SIZE));
@@ -439,14 +532,15 @@ static void design(App *a, const Quilt *q)
     choice(v, control_box[UNIT_IN], "in", prefs.unit == INCHES, true);
     choice(v, control_box[UNIT_CM], "cm", prefs.unit == CENTIMETRES, true);
     snprintf(line, sizeof line, "%s / %s", tr(lang, SEAMS_NAME), seam_name[q->seams][lang]);
-    choice(v, control_box[SET_SEAMS], line, false, true);
+    if (q->foundation) button_label(v,control_box[SET_SEAMS],tr(lang,whole_name[q->foundation]),19,muted);
+    else choice(v, control_box[SET_SEAMS], line, false, true);
 }
 
 static void sheet(App *a, const Quilt *q)
 {
     View *v = a->view;
     Language lang = a->prefs.language;
-    int counts[FABRICS];
+    int counts[MAX_FABRICS];
     char line[200], size[2 * NUMBER_BYTES + 16], other_size[2 * NUMBER_BYTES + 16];
     count_pieces(q, counts);
     title(v, 36, 85, 57, tr(lang, SHEET_NAME));
@@ -459,25 +553,30 @@ static void sheet(App *a, const Quilt *q)
     snprintf(top, sizeof top, tr(lang, TOP_SIZE), line);
     fitted(v, &v->body, (SDL_FRect){38, 142, 630, 30}, 21, muted, top, false);
     box(v, (SDL_FRect){36, 190, 634, 86}, 0xe8ecdf);
-    bool pieced = q->pattern || mixed_quilt(q) || q->seams;
+    bool whole = q->foundation || q->applique;
+    bool pieced = whole || q->pattern || mixed_quilt(q) || q->seams;
     if (pieced) {
         int total = 0;
-        for (int f = 0; f < FABRICS; ++f) total += counts[f];
-        snprintf(line, sizeof line, tr(lang, CUT_PIECES), total, q->rows * q->cols);
+        for (int f = 0; f < q->fabrics; ++f) total += counts[f];
+        if (whole) snprintf(line,sizeof line,tr(lang,WHOLE_TOTAL),total);
+        else snprintf(line, sizeof line, tr(lang, CUT_PIECES), total, q->rows * q->cols);
     } else {
         dimensions(size, a->prefs, q->size + 2 * SEAM_ALLOWANCE, q->size + 2 * SEAM_ALLOWANCE, 3, true);
         snprintf(line, sizeof line, tr(lang, CUT_SQUARES), q->rows * q->cols, size);
     }
     fitted(v, &v->title, (SDL_FRect){56, 202, 592, 40}, 36, ink, line, false);
     snprintf(line, sizeof line, tr(lang, SEAM_SHORT), seam_measure(a->prefs));
-    body(v, 57, 246, 18, muted, line);
+    body(v, 57, 246, 18, muted, whole ? tr(lang,TRACE_HELP) : line);
     body(v, 48, 307, 17, muted, tr(lang, SHEET_FABRIC));
     fitted(v, &v->body, (SDL_FRect){553, 307, 100, 22}, 17, muted, tr(lang, SHEET_PIECES), true);
-    for (int f = 0; f < FABRICS; ++f) {
-        float y = 341 + f * 55;
+    if (q->fabrics > STARTER_FABRICS) basket_nav(a, q);
+    for (int slot = 0; slot < STARTER_FABRICS; ++slot) {
+        int f = a->fabric_page * STARTER_FABRICS + slot;
+        if (f >= q->fabrics) break;
+        float y = 341 + slot * 55;
         box(v, (SDL_FRect){36, y - 5, 634, 1}, rule);
         tile(v, f, (SDL_FRect){48, y + 3, 39, 32}, 0.8f);
-        if (q->color[f] == original_palette[f])
+        if (f < STARTER_FABRICS && q->color[f] == original_palette[f])
             snprintf(line, sizeof line, "%c    %s", 'A' + f, fabric_name[f][lang]);
         else
             snprintf(line, sizeof line, "%c    #%06X", 'A' + f, (unsigned)q->color[f]);
@@ -485,7 +584,7 @@ static void sheet(App *a, const Quilt *q)
         snprintf(line, sizeof line, "%d", counts[f]);
         fitted(v, &v->body, (SDL_FRect){553, y + 6, 100, 30}, 24, green, line, true);
     }
-    title(v, 721, 100, 39, tr(lang, ROW_MAP));
+    title(v, 721, 100, 39, tr(lang, whole ? WHOLE_NAME : ROW_MAP));
     fitted(v, &v->body, (SDL_FRect){723, 147, 324, 30}, 19, muted, tr(lang, pieced ? MAP_USAGE : ROW_USAGE), false);
     board(v, q, (SDL_FRect){717, 192, 323, 328}, NULL, TEXTURED | LETTERS);
 #ifdef __EMSCRIPTEN__
@@ -506,6 +605,40 @@ static void pager(View *v, Language lang, int page, int pages)
     body(v, 147, 628, 19, muted, label);
 }
 
+static void whole_library(App *a, const Quilt *q)
+{
+    View *v = a->view;
+    Language lang = a->prefs.language;
+    for (int id = HEX_FIELD; id < WHOLE_COUNT; ++id) {
+        SDL_FRect card = pattern_card(id - HEX_FIELD);
+        bool picked = (int)a->whole_choice == id;
+        box(v, card, picked ? 0xe8ecdf : 0xfffcf5);
+        border(v, card, picked ? green : rule);
+        Quilt sample = {.rows = 3, .cols = 3, .foundation = WHOLECLOTH};
+        if (id >= VINE)
+            sample.applique = (uint8_t)id;
+        else
+            sample.foundation = (uint8_t)id;
+        quilt_pieces(v, &sample, (SDL_FRect){card.x + 34, card.y + 11, 126, 126}, NULL, 0);
+        fitted(v, &v->body, (SDL_FRect){card.x + 12, card.y + 144, card.w - 24, 28}, 22, ink,
+               tr(lang, whole_name[id]), false);
+    }
+    fitted(v, &v->body, (SDL_FRect){36, 627, 617, 25}, 19, muted, tr(lang, WHOLE_GUIDE), false);
+    box(v, (SDL_FRect){672, 99, 1, 558}, rule);
+    int id = a->whole_choice;
+    bool applique = id >= VINE;
+    Quilt preview = *q;
+    set_whole_design(&preview, applique ? APPLIQUE : FOUNDATION, (WholeDesign)id);
+    fitted(v, &v->title, (SDL_FRect){705, 98, 335, 49}, 43, ink, tr(lang, whole_name[id]), false);
+    body(v, 706, 147, 19, muted, tr(lang, applique ? APPLIQUE_NAME : FOUNDATION_NAME));
+    board(v, &preview, (SDL_FRect){705, 180, 335, 316}, NULL, 0);
+    fitted(v, &v->body, (SDL_FRect){706, 512, 334, 27}, 19, ink, tr(lang, whole_help[id]), false);
+    if (q->foundation) choice(v, control_box[RESTORE_BLOCKS], tr(lang, RESTORE_TOP), false, true);
+    if (q->applique) choice(v, control_box[REMOVE_OVERLAY], tr(lang, LIFT_APPLIQUE), false, true);
+    action(v, APPLY, tr(lang, applique ? ON_QUILT : USE_TOP), true);
+    if (applique) action(v, BRUSH, tr(lang, ON_CLOTH), false);
+}
+
 static void library(App *a, const Quilt *q)
 {
     static const Text filters[FILTER_COUNT] = {ALL_NAME, TRADITIONAL_NAME, MODERN_NAME};
@@ -518,9 +651,11 @@ static void library(App *a, const Quilt *q)
     char line[256], size[2 * NUMBER_BYTES + 16];
     title(v, 36, 85, 57, tr(lang, LIBRARY_NAME));
     snprintf(line, sizeof line, tr(lang, DESIGN_COUNT), count, SETTING_COUNT);
-    fitted(v, &v->body, (SDL_FRect){407, 154, 233, 30}, 20, muted, line, false);
+    if (!a->whole_library) fitted(v, &v->body, (SDL_FRect){546, 159, 117, 24}, 17, muted, line, true);
     for (int i = 0; i < FILTER_COUNT; ++i)
-        choice(v, control_box[FILTER_ALL + i], tr(lang, filters[i]), i == (int)a->filter, true);
+        choice(v, control_box[FILTER_ALL + i], tr(lang, filters[i]), !a->whole_library && i == (int)a->filter, true);
+    choice(v,control_box[FILTER_WHOLE],tr(lang,WHOLE_NAME),a->whole_library,true);
+    if (a->whole_library) { whole_library(a,q); return; }
 
     for (int i = 0; i < CARDS_PER_PAGE && start + i < count; ++i) {
         SDL_FRect card = pattern_card(i);
@@ -562,20 +697,20 @@ static void colors(App *a, const Quilt *q)
     for (int slot = 0; slot < PALETTES_PER_PAGE; ++slot) {
         int id = a->palette_page * PALETTES_PER_PAGE + slot;
         SDL_FRect card = palette_card(slot);
-        uint32_t tones[FABRICS];
+        uint32_t tones[STARTER_FABRICS];
         palette_colors(id, tones);
         palette_name(id, lang, name);
         bool picked = memcmp(tones, q->color, sizeof tones) == 0;
         box(v, card, picked ? 0xe8ecdf : 0xfffcf5);
         border(v, card, picked ? green : rule);
         fitted(v, &v->body, (SDL_FRect){card.x + 11, card.y + 7, card.w - 22, 30}, 21, ink, name, false);
-        float w = (card.w - 22) / FABRICS;
-        for (int f = 0; f < FABRICS; ++f)
+        float w = (card.w - 22) / STARTER_FABRICS;
+        for (int f = 0; f < STARTER_FABRICS; ++f)
             box(v, (SDL_FRect){card.x + 11 + f * w, card.y + 37, w, 24}, tones[f]);
     }
     pager(v, lang, a->palette_page, PALETTE_COUNT / PALETTES_PER_PAGE);
     fitted(v, &v->body, (SDL_FRect){309, 628, 348, 23}, 18, muted, tr(lang, PALETTES_HELP), false);
-    title(v, 754, 105, 38, tr(lang, COLOR_LIBRARY));
+    title(v, 754, 80, 38, tr(lang, COLOR_LIBRARY));
     fabric_swatches(a, q, true);
     fitted(v, &v->body, (SDL_FRect){754, 413, 286, 30}, 19, muted, tr(lang, CUSTOM_HELP), false);
     action(v, ORIGINAL_COLORS, tr(lang, ORIGINAL_PALETTE), false);
@@ -637,11 +772,11 @@ static void edit_popup(App *a, const Quilt *q)
     box(v, panel, paper);
     border(v, panel, green);
     if (a->editor == EDIT_FABRIC) {
-        snprintf(line, sizeof line, tr(lang, EDIT_COLOR), 'A' + a->fabric);
+        snprintf(line, sizeof line, tr(lang, a->adding ? ADD_FABRIC_TITLE : EDIT_COLOR), 'A' + (a->adding ? q->fabrics : a->fabric));
         title(v, 327, panel.y + 23, 42, line);
         body(v, 327, field.y - 25, 17, muted, tr(lang, CUSTOM_COLOR));
         int parsed = parse_color(a->input);
-        unsigned rgb = parsed < 0 ? q->color[a->fabric] : (unsigned)parsed;
+        unsigned rgb = parsed < 0 ? a->initial_color : (unsigned)parsed;
         box(v, (SDL_FRect){625, field.y, 102, field.h}, rgb);
         border(v, (SDL_FRect){625, field.y, 102, field.h}, rule);
         sliders(v, rgb);
@@ -674,6 +809,10 @@ static void describe(const App *a, const Quilt *q)
     } else if (a->language_menu) {
         keys = CANVAS_LANGUAGE;
         snprintf(line, sizeof line, "%s. %s.", tr(lang, LANGUAGE_NAME), language_name[lang]);
+    } else if (a->screen == LIBRARY && a->whole_library) {
+        keys = CANVAS_WHOLE;
+        snprintf(line, sizeof line, "%s. %s. %s.", tr(lang, WHOLE_NAME), tr(lang, whole_name[a->whole_choice]),
+                 tr(lang, whole_help[a->whole_choice]));
     } else if (a->screen == LIBRARY) {
         static const Text filters[FILTER_COUNT] = {ALL_NAME, TRADITIONAL_NAME, MODERN_NAME};
         int ids[PATTERN_COUNT];
@@ -688,6 +827,12 @@ static void describe(const App *a, const Quilt *q)
     } else {
         snprintf(line, sizeof line, "%s. %s.", tr(lang, a->screen == SHEET ? SHEET_NAME : DESIGN_NAME), quilt_name(q, lang));
     }
+    if (!a->editor && !a->language_menu && (a->screen == DESIGN || a->screen == COLORS || a->screen == SHEET)) {
+        size_t used = strlen(line);
+        snprintf(line + used, sizeof line - used, " %s %c. %c-%c / %d.", tr(lang, FABRIC_BASKET), 'A' + a->fabric,
+                 'A' + a->fabric_page * STARTER_FABRICS,
+                 'A' + SDL_min(q->fabrics, (a->fabric_page + 1) * STARTER_FABRICS) - 1, q->fabrics);
+    }
     browser_describe_view(line, tr(lang, keys), language_tag[lang]);
 }
 #endif
@@ -697,8 +842,8 @@ void draw_app(App *a)
     View *v = a->view;
     const Quilt *q = &a->history.steps[a->history.at];
     Language lang = a->prefs.language;
-    for (int f = 0; f < FABRICS; ++f)
-        if (v->color[f] != q->color[f]) {
+    for (int f = 0; f < q->fabrics; ++f)
+        if (!v->fabric[f] || v->color[f] != q->color[f]) {
             SDL_DestroyTexture(v->fabric[f]);
             v->color[f] = q->color[f];
             v->fabric[f] = fabric_tile(v->renderer, f, v->color[f]);
@@ -725,7 +870,7 @@ void draw_app(App *a)
     box(v, (SDL_FRect){0, 675, WALL_WIDTH, 1}, rule);
     fitted(v, &v->body, (SDL_FRect){36, 687, 557, 23}, 18, green, tr(lang, a->status), false);
     Text keys = a->language_menu ? LANGUAGE_KEYS : a->screen == SHEET ? SHEET_KEYS :
-                a->screen == LIBRARY ? LIBRARY_KEYS : a->screen == COLORS ? COLOR_KEYS : DESIGN_KEYS;
+                a->screen == LIBRARY ? (a->whole_library ? (a->whole_choice < VINE ? WHOLE_TOP_KEYS : WHOLE_KEYS) : LIBRARY_KEYS) : a->screen == COLORS ? COLOR_KEYS : DESIGN_KEYS;
     fitted(v, &v->body, (SDL_FRect){600, 687, 440, 23}, 17, muted, tr(lang, keys), false);
     language_menu(a);
     if (a->editor) edit_popup(a, q);

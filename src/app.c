@@ -38,10 +38,12 @@ static void store_preferences(App *a)
 static void edit(App *a, Editor editor, int fabric)
 {
     a->editor = editor;
-    a->fabric = fabric;
-    if (editor == EDIT_FABRIC)
-        snprintf(a->input, sizeof a->input, "%06X", (unsigned)current_quilt(a)->color[fabric]);
-    else
+    a->adding = editor == EDIT_FABRIC && fabric == current_quilt(a)->fabrics;
+    if (!a->adding) a->fabric = fabric;
+    if (editor == EDIT_FABRIC) {
+        a->initial_color = a->adding ? extra_fabric_color(fabric) : current_quilt(a)->color[fabric];
+        snprintf(a->input, sizeof a->input, "%06X", (unsigned)a->initial_color);
+    } else
         decimal(a->input, a->prefs.language, current_quilt(a)->size / (double)unit_scale(a->prefs.unit), 4, true);
     a->replace_input = true;
     a->invalid = false;
@@ -51,6 +53,7 @@ static void edit(App *a, Editor editor, int fabric)
 static void close_editor(App *a)
 {
     a->editor = EDIT_NONE;
+    a->adding = false;
     SDL_StopTextInput(a->window);
     a->dirty = true;
 }
@@ -64,7 +67,13 @@ static void apply_editor(App *a)
         a->dirty = true;
         return;
     }
-    if (a->editor == EDIT_FABRIC) q.color[a->fabric] = (uint32_t)value;
+    if (a->adding) {
+        a->fabric = q.fabrics;
+        add_fabric(&q, (uint32_t)value);
+        a->fabric_page = a->fabric / STARTER_FABRICS;
+        a->brush = 0;
+    } else if (a->editor == EDIT_FABRIC)
+        q.color[a->fabric] = (uint32_t)value;
     else resize_quilt(&q, q.rows, q.cols, value);
     revise(a, &q);
     close_editor(a);
@@ -103,14 +112,17 @@ static void change_size(App *a, Control id)
     int cols = q.cols + (id <= COL_MORE ? change : 0);
     int rows = q.rows + (id == ROW_LESS || id == ROW_MORE ? change : 0);
     int size = SDL_clamp(q.size + (id >= PATCH_LESS ? change * unit_scale(a->prefs.unit) : 0), MIN_SIZE, MAX_SIZE);
-    if (resize_quilt(&q, rows, cols, size)) revise(a, &q);
+    if (resize_quilt(&q, rows, cols, size)) {
+        a->whole_piece = -1;
+        revise(a, &q);
+    }
 }
 
 static void go_page(App *a, int delta)
 {
     if (a->screen == COLORS) {
         a->palette_page = SDL_clamp(a->palette_page + delta, 0, (PALETTE_COUNT - 1) / PALETTES_PER_PAGE);
-    } else {
+    } else if (!a->whole_library) {
         int ids[PATTERN_COUNT];
         int count = catalog_ids(a->filter, ids);
         int next = (a->chosen / CARDS_PER_PAGE + delta) * CARDS_PER_PAGE;
@@ -120,6 +132,20 @@ static void go_page(App *a, int delta)
 
 static void use_pattern(App *a, bool fill)
 {
+    if (a->whole_library) {
+        Quilt q = *current_quilt(a);
+        Layer layer = a->whole_choice >= VINE ? APPLIQUE : FOUNDATION;
+        if (layer == APPLIQUE && !fill) set_whole_design(&q, FOUNDATION, WHOLECLOTH);
+        set_whole_design(&q, layer, a->whole_choice);
+        a->selected_layer = layer;
+        a->background_only = false;
+        a->whole_piece = -1;
+        a->screen = DESIGN;
+        a->brush = 0;
+        a->cursor = false;
+        revise(a, &q);
+        return;
+    }
     int ids[PATTERN_COUNT];
     catalog_ids(a->filter, ids);
     int id = ids[a->chosen];
@@ -127,6 +153,8 @@ static void use_pattern(App *a, bool fill)
     a->patch = 0;
     a->cursor = false;
     a->brush = fill ? 0 : id;
+    a->whole_piece = -1;
+    a->selected_layer = FOUNDATION;
     a->turn = 1;
     if (fill) {
         Quilt q = *current_quilt(a);
@@ -138,7 +166,7 @@ static void use_palette(App *a, int number)
 {
     Quilt q = *current_quilt(a);
     if (number >= 0) palette_colors(number, q.color);
-    else memcpy(q.color, original_palette, sizeof q.color);
+    else memcpy(q.color, original_palette, sizeof original_palette);
     revise(a, &q);
 }
 
@@ -147,7 +175,11 @@ static void click_control(App *a, Control id)
     if (id <= COLORS) {
         a->screen = id;
     } else if (id == UNDO || id == REDO) {
-        if (travel(&a->history, id == UNDO ? -1 : 1)) persist(a);
+        if (travel(&a->history, id == UNDO ? -1 : 1)) {
+            persist(a);
+            a->whole_piece = -1;
+            a->cursor = false;
+        }
     } else if (id == LANGUAGE_MENU) {
         a->language_menu = !a->language_menu;
     } else if (id >= LANGUAGE_EN && id <= LANGUAGE_PL) {
@@ -155,9 +187,33 @@ static void click_control(App *a, Control id)
         a->language_menu = false;
         store_preferences(a);
     } else if (id >= SWATCH_A && id <= SWATCH_E) {
-        a->fabric = id - SWATCH_A;
+        int f = a->fabric_page * STARTER_FABRICS + id - SWATCH_A;
+        if (f >= current_quilt(a)->fabrics) return;
+        a->fabric = f;
         if (a->screen == COLORS) edit(a, EDIT_FABRIC, a->fabric);
         else a->brush = 0;
+    } else if (id == ADD_SWATCH) {
+        if (current_quilt(a)->fabrics < MAX_FABRICS) edit(a, EDIT_FABRIC, current_quilt(a)->fabrics);
+    } else if (id == FABRIC_PREV || id == FABRIC_NEXT) {
+        int last = (current_quilt(a)->fabrics - 1) / STARTER_FABRICS;
+        a->fabric_page = SDL_clamp(a->fabric_page + (id == FABRIC_NEXT ? 1 : -1), 0, last);
+    } else if (id == EDIT_LAYER) {
+        a->background_only = !a->background_only;
+        a->selected_layer = a->background_only ? FOUNDATION : APPLIQUE;
+        a->whole_piece = -1;
+        a->cursor = false;
+    } else if (id == RESTORE_BLOCKS) {
+        Quilt q = *current_quilt(a);
+        set_whole_design(&q, FOUNDATION, BLOCK_TOP);
+        a->whole_piece = -1;
+        revise(a, &q);
+    } else if (id == REMOVE_OVERLAY) {
+        Quilt q = *current_quilt(a);
+        set_whole_design(&q, APPLIQUE, BLOCK_TOP);
+        a->selected_layer = FOUNDATION;
+        a->whole_piece = -1;
+        a->background_only = false;
+        revise(a, &q);
     } else if (id == SET_SIZE) {
         edit(a, EDIT_SIZE_VALUE, a->fabric);
     } else if (id == UNIT_IN || id == UNIT_CM) {
@@ -165,7 +221,7 @@ static void click_control(App *a, Control id)
         store_preferences(a);
     } else if (id == SET_SEAMS) {
         Quilt q = *current_quilt(a);
-        q.seams = (uint8_t)((q.seams + 1) % SEAM_COUNT);
+        if (!q.foundation) q.seams = (uint8_t)((q.seams + 1) % SEAM_COUNT);
         revise(a, &q);
     } else if (id == ROTATE_BLOCK) {
         a->turn = a->turn % 4 + 1;
@@ -187,9 +243,12 @@ static void click_control(App *a, Control id)
         else a->pdf_pending = true;
 #endif
     } else if (id >= FILTER_ALL && id <= FILTER_MODERN) {
+        a->whole_library = false;
         PatternFilter filter = (PatternFilter)(id - FILTER_ALL);
         if (a->filter != filter) a->chosen = 0;
         a->filter = filter;
+    } else if (id == FILTER_WHOLE) {
+        a->whole_library = true;
     } else if (id == PREV_PAGE || id == NEXT_PAGE) {
         go_page(a, id == PREV_PAGE ? -1 : 1);
     } else if (id == APPLY || id == BRUSH) {
@@ -200,6 +259,9 @@ static void click_control(App *a, Control id)
         change_size(a, id);
     }
     const Quilt *q = current_quilt(a);
+    a->fabric = SDL_min(a->fabric, q->fabrics - 1);
+    a->fabric_page = SDL_min(a->fabric_page, (q->fabrics - 1) / STARTER_FABRICS);
+    if (!q->applique) a->selected_layer = FOUNDATION;
     a->row = SDL_min(a->row, q->rows - 1);
     a->col = SDL_min(a->col, q->cols - 1);
     a->patch = SDL_min(a->patch, block_pattern(&q->cell[a->row][a->col])->count - 1);
@@ -210,8 +272,12 @@ static void place(App *a)
 {
     Quilt q = *current_quilt(a);
     if (a->brush) {
+        set_whole_design(&q, FOUNDATION, BLOCK_TOP);
         place_block(&q.cell[a->row][a->col], a->brush, a->turn);
         a->patch = 0;
+    } else if (a->selected_layer == APPLIQUE ? q.applique : q.foundation) {
+        if (a->whole_piece < 0) a->whole_piece = next_whole(&q, a->selected_layer, -1, 1);
+        paint_whole(&q, a->selected_layer, a->whole_piece, a->fabric);
     } else {
         paint(&q, a->row, a->col, a->patch, a->fabric);
     }
@@ -225,7 +291,7 @@ static bool adjust_slider(App *a, SDL_FPoint point)
         SDL_FRect slider = slider_box(i);
         if (!SDL_PointInRectFloat(&point, &slider)) continue;
         int parsed = parse_color(a->input);
-        unsigned color = parsed < 0 ? current_quilt(a)->color[a->fabric] : (unsigned)parsed;
+        unsigned color = parsed < 0 ? a->initial_color : (unsigned)parsed;
         int shift = 16 - 8 * i;
         unsigned value = (unsigned)SDL_clamp(SDL_roundf((point.x - slider.x) * 255 / slider.w), 0, 255);
         color = (color & ~(255u << shift)) | (value << shift);
@@ -240,6 +306,14 @@ static bool adjust_slider(App *a, SDL_FPoint point)
 
 static void library_pointer(App *a, SDL_FPoint point)
 {
+    if (a->whole_library) {
+        for (int design = HEX_FIELD; design < WHOLE_COUNT; ++design) {
+            SDL_FRect card = pattern_card(design - HEX_FIELD);
+            if (SDL_PointInRectFloat(&point, &card)) a->whole_choice = (WholeDesign)design;
+        }
+        a->dirty = true;
+        return;
+    }
     int ids[PATTERN_COUNT];
     int count = catalog_ids(a->filter, ids);
     int start = a->chosen / CARDS_PER_PAGE * CARDS_PER_PAGE;
@@ -261,6 +335,19 @@ static void board_pointer(App *a, SDL_FPoint point)
     if (point.x < board.x || point.x >= board.x + board.w ||
         point.y < board.y || point.y >= board.y + board.h) return;
     double side = board.w / q->cols, x = (point.x - board.x) / side, y = (point.y - board.y) / side;
+    if (!a->brush) {
+        for (int layer = a->background_only ? FOUNDATION : APPLIQUE; layer >= FOUNDATION; --layer) {
+            int id = hit_whole(q, (Layer)layer, (XY){x, y});
+            if (id < 0) continue;
+            a->selected_layer = (Layer)layer;
+            a->whole_piece = id;
+            a->cursor = true;
+            place(a);
+            return;
+        }
+    }
+    a->selected_layer = FOUNDATION;
+    a->whole_piece = -1;
     for (int r = 0; r < q->rows; ++r)
         for (int c = 0; c < q->cols; ++c) {
             BlockBounds b = block_bounds(q, r, c);
@@ -279,6 +366,29 @@ static void board_pointer(App *a, SDL_FPoint point)
         }
 }
 
+static bool control_visible(const App *a, Control id)
+{
+    if (id <= LANGUAGE_MENU) return true;
+    const Quilt *q = current_quilt(a);
+    bool basket = id >= FABRIC_PREV && id <= ADD_SWATCH;
+    bool pager = id == PREV_PAGE || id == NEXT_PAGE;
+    switch (a->screen) {
+    case DESIGN:
+        return basket || (id >= SWATCH_A && id <= SET_SEAMS) ||
+               (a->brush && (id == ROTATE_BLOCK || id == FINISH_PLACING)) ||
+               (q->applique && !a->brush && id == EDIT_LAYER);
+    case SHEET:
+        return id == SHARE || id == EXPORT_PDF ||
+               ((id == FABRIC_PREV || id == FABRIC_NEXT) && q->fabrics > STARTER_FABRICS);
+    case COLORS:
+        return basket || pager || id == ORIGINAL_COLORS || (id >= SWATCH_A && id <= SWATCH_E);
+    default:
+        if (!a->whole_library) return id >= FILTER_ALL && id <= BRUSH;
+        return (id >= FILTER_ALL && id <= FILTER_WHOLE) || id == APPLY || (id == BRUSH && a->whole_choice >= VINE) ||
+               (id == REMOVE_OVERLAY && q->applique) || (id == RESTORE_BLOCKS && q->foundation);
+    }
+}
+
 static void pointer(App *a, float x, float y)
 {
     SDL_FPoint point = {x, y};
@@ -295,15 +405,10 @@ static void pointer(App *a, float x, float y)
         return;
     }
     for (Control id = DESIGN; id < LANGUAGE_EN; ++id) {
-        bool swatch = id >= SWATCH_A && id <= SWATCH_E;
-        bool pager = id == PREV_PAGE || id == NEXT_PAGE;
-        bool visible = id <= LANGUAGE_MENU ||
-                       (a->screen == DESIGN && id >= SWATCH_A && id <= SET_SEAMS) ||
-                       (a->screen == DESIGN && a->brush && (id == ROTATE_BLOCK || id == FINISH_PLACING)) ||
-                       (a->screen == SHEET && (id == SHARE || id == EXPORT_PDF)) ||
-                       (a->screen == LIBRARY && id >= FILTER_ALL && id <= BRUSH) ||
-                       (a->screen == COLORS && (swatch || pager || id == ORIGINAL_COLORS));
-        if (visible && SDL_PointInRectFloat(&point, &control_box[id])) {
+        if (!control_visible(a, id)) continue;
+        bool basket = id >= FABRIC_PREV && id <= ADD_SWATCH;
+        SDL_FRect rect = basket ? fabric_nav(id, a->screen) : control_box[id];
+        if (SDL_PointInRectFloat(&point, &rect)) {
             click_control(a, id);
             return;
         }
@@ -324,8 +429,27 @@ static void library_key(App *a, SDL_Keycode key)
 {
     int ids[PATTERN_COUNT];
     int count = catalog_ids(a->filter, ids);
+    if (a->whole_library) {
+        if (key == SDLK_X && current_quilt(a)->applique) {
+            click_control(a, REMOVE_OVERLAY);
+            return;
+        }
+        if (key == SDLK_G && current_quilt(a)->foundation) {
+            click_control(a, RESTORE_BLOCKS);
+            return;
+        }
+        if (key == SDLK_B && a->whole_choice < VINE) return;
+        int delta =
+            (key == SDLK_RIGHT) - (key == SDLK_LEFT) + CARDS_PER_ROW * ((key == SDLK_DOWN) - (key == SDLK_UP));
+        if (delta) {
+            a->whole_choice = (WholeDesign)SDL_clamp((int)a->whole_choice + delta, HEX_FIELD, WHOLE_COUNT - 1);
+            a->dirty = true;
+            return;
+        }
+    }
     switch (key) {
     case SDLK_ESCAPE: click_control(a, DESIGN); break;
+    case SDLK_4: click_control(a, FILTER_WHOLE); break;
     case SDLK_RETURN: case SDLK_SPACE: click_control(a, APPLY); break;
     case SDLK_B: click_control(a, BRUSH); break;
     case SDLK_PAGEUP: click_control(a, PREV_PAGE); break;
@@ -349,7 +473,17 @@ static void library_key(App *a, SDL_Keycode key)
 static void design_key(App *a, SDL_Keycode key, bool shift)
 {
     const Quilt *q = current_quilt(a);
+    bool whole = !a->brush && (a->selected_layer == APPLIQUE ? q->applique : q->foundation);
+    if (whole && (key == SDLK_LEFTBRACKET || key == SDLK_RIGHTBRACKET || key == SDLK_LEFT || key == SDLK_RIGHT ||
+                  key == SDLK_UP || key == SDLK_DOWN)) {
+        int dir = key == SDLK_LEFT || key == SDLK_LEFTBRACKET || key == SDLK_UP ? -1 : 1;
+        a->whole_piece = next_whole(q, a->selected_layer, a->whole_piece, dir);
+        a->cursor = true;
+        a->dirty = true;
+        return;
+    }
     switch (key) {
+    case SDLK_W: if (q->applique) click_control(a, EDIT_LAYER); break;
     case SDLK_ESCAPE: click_control(a, FINISH_PLACING); break;
     case SDLK_M: click_control(a, SET_SIZE); break;
     case SDLK_R: click_control(a, shift ? ROW_LESS : ROW_MORE); break;
@@ -404,6 +538,14 @@ static void keyboard(App *a, SDL_Keycode key, SDL_Keymod mod)
     default: break;
     }
     if (a->screen == LIBRARY) { library_key(a, key); return; }
+    if (key == SDLK_COMMA || key == SDLK_PERIOD) {
+        click_control(a, key == SDLK_COMMA ? FABRIC_PREV : FABRIC_NEXT);
+        return;
+    }
+    if (key == SDLK_N && a->screen != SHEET) {
+        click_control(a, ADD_SWATCH);
+        return;
+    }
     if (a->screen == SHEET) {
         if (key == SDLK_RETURN || key == SDLK_SPACE) click_control(a, SHARE);
         else if (key == SDLK_D) click_control(a, EXPORT_PDF);
@@ -455,6 +597,9 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     a->protected_plan = load == STORE_BAD;
     a->status = a->protected_plan ? PROTECTED_PLAN : load == STORE_OK ? SAVED : EDITS_SAVE;
     a->fabric = 1;
+    a->whole_choice = HEX_FIELD;
+    a->whole_piece = -1;
+    a->selected_layer = a->history.steps[0].applique ? APPLIQUE : FOUNDATION;
     a->dirty = true;
     printf("Patchwork renderer: %s\n", SDL_GetRendererName(a->renderer));
     fflush(stdout);

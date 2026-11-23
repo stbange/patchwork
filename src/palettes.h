@@ -5,6 +5,7 @@
 
 enum { PALETTE_COUNT = 100, PALETTE_NAME_BYTES = 80 };
 void palette_name(int id, Language language, char out[PALETTE_NAME_BYTES]);
-void palette_colors(int id, uint32_t out[FABRICS]);
+uint32_t extra_fabric_color(int fabric);
+void palette_colors(int id, uint32_t out[STARTER_FABRICS]);
 
 #endif

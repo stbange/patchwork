@@ -32,7 +32,7 @@ static const ColorFamily families[] = {
 
 static const struct {
     const char *name[LANGUAGE_COUNT];
-    uint8_t pick[FABRICS];
+    uint8_t pick[STARTER_FABRICS];
 } combinations[] = {
     {{"Morning", "Morgen", "Poranek"}, {0, 3, 5, 8, 6}},
     {{"Mist", "Nebel", "Mgła"}, {1, 2, 3, 8, 5}},
@@ -55,9 +55,17 @@ void palette_name(int id, Language language, char out[PALETTE_NAME_BYTES])
              combinations[id % PALETTES_PER_FAMILY].name[language]);
 }
 
-void palette_colors(int id, uint32_t out[FABRICS])
+void palette_colors(int id, uint32_t out[STARTER_FABRICS])
 {
     const ColorFamily *family = &families[id / PALETTES_PER_FAMILY];
     const uint8_t *pick = combinations[id % PALETTES_PER_FAMILY].pick;
-    for (int f = 0; f < FABRICS; ++f) out[f] = family->color[pick[f]];
+    for (int f = 0; f < STARTER_FABRICS; ++f) out[f] = family->color[pick[f]];
+}
+
+uint32_t extra_fabric_color(int fabric)
+{
+    static const uint32_t scraps[MAX_FABRICS - STARTER_FABRICS] = {
+        0x679e9b, 0xa37491, 0xca8158, 0x536f51, 0xe7b2a8, 0xaabcca, 0x733f50, 0xa69a63, 0x56789b, 0xdbc891, 0x9b7161,
+        0x7f909b, 0xc58b9f, 0x68836c, 0xf2d6b0, 0x6f6190, 0x90aba6, 0xc48c62, 0x455868, 0xb7b481, 0x8f5e68};
+    return scraps[fabric - STARTER_FABRICS];
 }
